@@ -2,16 +2,18 @@ import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function HomeScreen() {
   const { isAuthenticated, loading } = useAuth();
+  const { theme } = useTheme();
 
   // Redirection automatique selon l'état d'authentification
   useEffect(() => {
     if (!loading) {
       if (isAuthenticated) {
-        console.log('Utilisateur connecté, redirection vers les onglets');
-        router.replace('/(tabs)');
+        console.log('Utilisateur connecté, redirection vers l\'interface principale');
+        router.replace('/main');
       } else {
         console.log('Utilisateur non connecté, redirection vers login');
         router.replace('/login');
@@ -21,10 +23,10 @@ export default function HomeScreen() {
 
   // Écran de chargement pendant la vérification de l'auth
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
       <View style={styles.content}>
         <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>
+        <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
           Vérification de l'authentification...
         </Text>
       </View>
@@ -35,7 +37,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   content: {
     flex: 1,
@@ -45,7 +46,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: '#6B7280',
     textAlign: 'center',
   },
 });

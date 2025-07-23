@@ -1,125 +1,225 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView } from 'react-native';
-import { ArrowLeft, User, Mail, Phone, CreditCard as Edit3, Check, X } from 'lucide-react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  SafeAreaView,
+  Image,
+  Dimensions,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { router } from 'expo-router';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../services/firebaseConfig';
+import { useAuth } from '../contexts/AuthContext';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isDesktop = screenWidth > 768;
 
 export default function AccountScreen() {
-  const [isEditing, setIsEditing] = useState(false);
-  const [name, setName] = useState('John Doe');
-  const [email, setEmail] = useState('john.doe@example.com');
-  const [phone, setPhone] = useState('+33 6 12 34 56 78');
+  const { signInWithGoogle } = useAuth();
+  const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSave = () => {
-    setIsEditing(false);
-    // Ici vous pourriez sauvegarder les données
+  const validatePassword = (password: string) => {
+    const minLength = 8;
+    const hasLetter = /[a-zA-Z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    
+    return password.length >= minLength && hasLetter && hasNumber;
   };
 
-  const handleCancel = () => {
-    setIsEditing(false);
-    // Restaurer les valeurs originales si nécessaire
+  const handleCreateAccount = async () => {
+    if (!email.trim() || !firstName.trim() || !lastName.trim() || !password.trim() || !confirmPassword.trim()) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Erreur', 'Les mots de passe ne correspondent pas');
+      return;
+    }
+
+    if (!validatePassword(password)) {
+      Alert.alert(
+        'Mot de passe invalide', 
+        'Le mot de passe doit contenir au moins 8 caractères, une lettre et un chiffre'
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      console.log('Compte créé avec succès ! UID:', userCredential.user.uid);
+      
+      // Optionnel : Mettre à jour le profil avec prénom/nom
+      // await updateProfile(userCredential.user, {
+      //   displayName: `${firstName} ${lastName}`
+      // });
+
+      router.replace('/main');
+    } catch (error: any) {
+      let message = 'Erreur lors de la création du compte';
+      if (error.code === 'auth/email-already-in-use') {
+        message = 'Cette adresse email est déjà utilisée';
+      } else if (error.code === 'auth/invalid-email') {
+        message = 'Format d\'email invalide';
+      } else if (error.code === 'auth/weak-password') {
+        message = 'Le mot de passe est trop faible';
+      }
+      Alert.alert('Erreur de création', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+      router.replace('/main');
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Erreur lors de l\'inscription avec Google');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <ArrowLeft size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mon Compte</Text>
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => setIsEditing(!isEditing)}
-        >
-          {isEditing ? (
-            <X size={24} color="#FFFFFF" />
-          ) : (
-            <Edit3 size={24} color="#FFFFFF" />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
-        <View style={styles.profileSection}>
-          <View style={styles.avatar}>
-            <User size={48} color="#FFFFFF" />
-          </View>
-          <Text style={styles.userName}>{name}</Text>
-          <Text style={styles.userStatus}>En ligne</Text>
+      <View style={[styles.content, { flexDirection: isDesktop ? 'row' : 'column' }]}>
+        {/* Logo Section */}
+        <View style={[styles.logoSection, { flex: isDesktop ? 1 : 0 }]}>
+          <Image
+            source={require('../assets/mobile-assets/LogoSombreTexte.png')}
+            style={[
+              styles.logo,
+              {
+                width: isDesktop ? 500 : 60,
+                height: isDesktop ? 500 : 60,
+              }
+            ]}
+            resizeMode="contain"
+          />
         </View>
 
-        <View style={styles.formSection}>
-          <View style={styles.fieldContainer}>
-            <View style={styles.fieldHeader}>
-              <User size={20} color="#A0A0A0" />
-              <Text style={styles.fieldLabel}>Nom complet</Text>
-            </View>
-            {isEditing ? (
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="Votre nom"
-                placeholderTextColor="#666666"
-              />
-            ) : (
-              <Text style={styles.fieldValue}>{name}</Text>
-            )}
-          </View>
+        {/* Form Section */}
+        <View style={[styles.formSection, { flex: isDesktop ? 1 : 0 }]}>
+          <View style={styles.formContainer}>
+            <Text style={styles.title}>Créer un compte</Text>
 
-          <View style={styles.fieldContainer}>
-            <View style={styles.fieldHeader}>
-              <Mail size={20} color="#A0A0A0" />
-              <Text style={styles.fieldLabel}>Email</Text>
-            </View>
-            {isEditing ? (
+            {/* Email Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>@</Text>
               <TextInput
                 style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#d3d3d3"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="Votre email"
-                placeholderTextColor="#666666"
                 keyboardType="email-address"
+                autoCapitalize="none"
               />
-            ) : (
-              <Text style={styles.fieldValue}>{email}</Text>
-            )}
-          </View>
-
-          <View style={styles.fieldContainer}>
-            <View style={styles.fieldHeader}>
-              <Phone size={20} color="#A0A0A0" />
-              <Text style={styles.fieldLabel}>Téléphone</Text>
             </View>
-            {isEditing ? (
+
+            {/* First Name Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>👤</Text>
               <TextInput
                 style={styles.input}
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="Votre téléphone"
-                placeholderTextColor="#666666"
-                keyboardType="phone-pad"
+                placeholder="Prénom"
+                placeholderTextColor="#d3d3d3"
+                value={firstName}
+                onChangeText={setFirstName}
+                autoCapitalize="words"
               />
-            ) : (
-              <Text style={styles.fieldValue}>{phone}</Text>
-            )}
+            </View>
+
+            {/* Last Name Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>👤</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Nom"
+                placeholderTextColor="#d3d3d3"
+                value={lastName}
+                onChangeText={setLastName}
+                autoCapitalize="words"
+              />
+            </View>
+
+            {/* Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>🔒</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Mot de passe"
+                placeholderTextColor="#d3d3d3"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+            </View>
+
+            {/* Confirm Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputIcon}>🔒</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Confirmer le mot de passe"
+                placeholderTextColor="#d3d3d3"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+              />
+            </View>
+
+            {/* Password Requirements */}
+            <Text style={styles.passwordHint}>
+              Le mot de passe doit contenir au moins 8 caractères, une lettre et un chiffre
+            </Text>
+
+            {/* Create Account Button */}
+            <TouchableOpacity 
+              style={styles.createButton} 
+              onPress={handleCreateAccount}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.createButtonText}>Créer un compte</Text>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.orText}>ou</Text>
+
+            {/* Google Signup Button */}
+            <TouchableOpacity 
+              style={styles.googleButton}
+              onPress={handleGoogleSignup}
+              disabled={loading}
+            >
+              <Text style={styles.googleButtonText}>S'inscrire avec Google</Text>
+            </TouchableOpacity>
+
+            {/* Footer Links */}
+            <View style={styles.footerLinks}>
+              <TouchableOpacity onPress={() => router.push('/login')}>
+                <Text style={styles.linkText}>Déjà un compte ? Se connecter</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-
-        {isEditing && (
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Check size={20} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>Sauvegarder</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-              <Text style={styles.cancelButtonText}>Annuler</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -127,107 +227,119 @@ export default function AccountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333333',
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  editButton: {
-    padding: 8,
+    backgroundColor: '#222522', // Couleur fixe selon documentation
   },
   content: {
     flex: 1,
-  },
-  profileSection: {
-    alignItems: 'center',
-    padding: 32,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#4A5568',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
-  userName: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 4,
+  logoSection: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: isDesktop ? 0 : 20,
   },
-  userStatus: {
-    fontSize: 16,
-    color: '#00D4AA',
+  logo: {
+    maxWidth: '90%',
+    maxHeight: isDesktop ? 500 : 80,
   },
   formSection: {
-    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    minHeight: isDesktop ? 0 : screenHeight * 0.7,
   },
-  fieldContainer: {
-    marginBottom: 24,
+  formContainer: {
+    backgroundColor: '#222522',
+    borderRadius: 25,
+    padding: 32,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
   },
-  fieldHeader: {
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    backgroundColor: '#171717',
+    borderRadius: 35,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+    shadowColor: 'rgb(5, 5, 5)',
+    shadowOffset: { width: 2, height: 5 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 5,
+    width: '100%',
   },
-  fieldLabel: {
+  inputIcon: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#A0A0A0',
-    marginLeft: 8,
-  },
-  fieldValue: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    paddingLeft: 28,
+    color: '#d3d3d3',
+    marginRight: 12,
+    width: 20,
   },
   input: {
-    backgroundColor: '#333333',
-    borderRadius: 8,
-    padding: 16,
-    fontSize: 18,
-    color: '#FFFFFF',
-    marginLeft: 28,
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#d3d3d3',
   },
-  buttonContainer: {
-    padding: 16,
-    gap: 12,
+  passwordHint: {
+    color: '#d3d3d3',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    lineHeight: 16,
   },
-  saveButton: {
-    flexDirection: 'row',
+  createButton: {
+    backgroundColor: '#1d9bf0',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: '100%',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    padding: 16,
-    gap: 8,
+    marginTop: 8,
   },
-  saveButtonText: {
-    color: '#FFFFFF',
+  createButtonText: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#ffffff',
   },
-  cancelButton: {
-    alignItems: 'center',
-    padding: 16,
-  },
-  cancelButtonText: {
-    color: '#A0A0A0',
+  orText: {
+    color: '#d3d3d3',
     fontSize: 16,
+    marginVertical: 16,
+  },
+  googleButton: {
+    backgroundColor: '#ffffff',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  googleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  footerLinks: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  linkText: {
+    color: '#d3d3d3',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+    textAlign: 'center',
   },
 });
