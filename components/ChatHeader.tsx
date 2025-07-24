@@ -7,7 +7,6 @@ import { NavbarIcon } from './icons/SvgIcons';
 interface ChatHeaderProps {
   currentAssistant: string;
   onReset: () => void;
-  onSave: () => void;
   onToggleSidebar: () => void;
 }
 
@@ -75,7 +74,7 @@ function SaveIcon({ size = 20, color }: { size?: number; color?: string }) {
   );
 }
 
-export default function ChatHeader({ currentAssistant, onReset, onSave, onToggleSidebar }: ChatHeaderProps) {
+export default function ChatHeader({ currentAssistant, onReset, onToggleSidebar }: ChatHeaderProps) {
   const { theme } = useTheme();
 
   return (
@@ -102,13 +101,6 @@ export default function ChatHeader({ currentAssistant, onReset, onSave, onToggle
           onPress={onReset}
         >
           <ResetIcon size={16} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
-          onPress={onSave}
-        >
-          <SaveIcon size={16} />
         </TouchableOpacity>
       </View>
     </View>

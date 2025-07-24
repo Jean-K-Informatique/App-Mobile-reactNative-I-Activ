@@ -23,8 +23,8 @@ type TabType = 'account' | 'subscription' | 'customization';
 const MAX_WORDS = 150;
 
 export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
-  const { theme } = useTheme();
-  const { user } = useAuth();
+  const { theme, isDark, toggleTheme } = useTheme();
+  const { user, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('account');
   
   // Données de personnalisation
@@ -136,7 +136,7 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
           <ScrollView style={styles.tabContent}>
             <View style={styles.accountInfo}>
               <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
-                Informations du compte
+                Mon profil
               </Text>
               <View style={styles.infoItem}>
                 <Text style={[styles.infoLabel, { color: theme.text.secondary }]}>Email</Text>
@@ -159,6 +159,27 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
                   }
                 </Text>
               </View>
+
+              {/* Mode clair/sombre */}
+              <TouchableOpacity 
+                style={[styles.themeToggle, { backgroundColor: theme.backgrounds.tertiary }]}
+                onPress={toggleTheme}
+              >
+                <Text style={[styles.themeToggleText, { color: theme.text.primary }]}>
+                  {isDark ? '☀️' : '🌙'} Mode {isDark ? 'clair' : 'sombre'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Bouton de déconnexion */}
+              <TouchableOpacity 
+                style={[styles.logoutButton, { backgroundColor: '#ef4444' }]}
+                onPress={() => {
+                  onClose();
+                  signOut();
+                }}
+              >
+                <Text style={styles.logoutButtonText}>Déconnexion</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         );
@@ -426,6 +447,27 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   saveButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  themeToggle: {
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  themeToggleText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  logoutButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',

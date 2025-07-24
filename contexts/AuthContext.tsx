@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import { router } from 'expo-router';
 import { auth } from '../services/firebaseConfig';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -37,6 +38,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = auth.onAuthStateChanged((authUser) => {
       console.log('[AuthContext] Auth state changed:', authUser?.uid || 'non connecté');
       
+      // Détecter si c'est une déconnexion (on avait un user et maintenant on n'en a plus)
+      const wasAuthenticated = !!user;
+      const isNowAuthenticated = !!authUser;
+      
       setUser(authUser);
       setAuthInitialized(true);
       
@@ -44,13 +49,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         console.log('[AuthContext] Auth initialisé');
       }
+      
+      // Redirection automatique après déconnexion
+      if (wasAuthenticated && !isNowAuthenticated && authInitialized) {
+        console.log('[AuthContext] Déconnexion détectée, redirection vers login');
+        router.replace('/login');
+      }
     });
 
     return () => {
       console.log('[AuthContext] Nettoyage du listener auth');
       unsubscribe();
     };
-  }, []); // UN SEUL useEffect, JAMAIS re-exécuté
+  }, [user, loading, authInitialized]); // UN SEUL useEffect, JAMAIS re-exécuté
 
   // Gérer Google OAuth
   useEffect(() => {

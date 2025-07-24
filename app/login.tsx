@@ -148,16 +148,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Test Login Button (dev only) */}
-            {__DEV__ && (
-              <TouchableOpacity 
-                style={styles.testButton}
-                onPress={handleTestLogin}
-                disabled={loading}
-              >
-                <Text style={styles.testButtonText}>Connexion Test (Dev)</Text>
-              </TouchableOpacity>
-            )}
+
           </View>
         </View>
       </View>
@@ -168,7 +159,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#222522', // Couleur fixe selon documentation
+    backgroundColor: '#222422', // Couleur unifiée avec le thème
   },
   content: {
     flex: 1,
@@ -191,7 +182,7 @@ const styles = StyleSheet.create({
     minHeight: isDesktop ? 0 : screenHeight * 0.6,
   },
   formContainer: {
-    backgroundColor: '#222522',
+    backgroundColor: '#222422',
     borderRadius: 25,
     padding: 32,
     width: '100%',

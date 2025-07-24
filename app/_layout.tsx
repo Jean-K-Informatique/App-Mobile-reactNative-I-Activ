@@ -7,7 +7,7 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
 
 function AppContent() {
-  const { isDark } = require('../contexts/ThemeContext').useTheme();
+  const { isDark, theme } = require('../contexts/ThemeContext').useTheme();
   
   return (
     <>
@@ -19,7 +19,10 @@ function AppContent() {
         <Stack.Screen name="main" />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      <StatusBar 
+        style={isDark ? "light" : "dark"} 
+        backgroundColor={theme.backgrounds.primary}
+      />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -11,8 +11,10 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  Keyboard 
+  Keyboard,
+  Image
 } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchUserChats, type Chat } from '../services/chatService';
@@ -29,7 +31,12 @@ interface Message {
   streaming?: boolean;
 }
 
-export default function ChatInterface() {
+interface ChatInterfaceProps {
+  currentAssistant: string;
+  onResetRequest?: React.MutableRefObject<(() => void) | null>;
+}
+
+export default function ChatInterface({ currentAssistant, onResetRequest }: ChatInterfaceProps) {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -39,6 +46,10 @@ export default function ChatInterface() {
   const [loading, setLoading] = useState(true);
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
+  const [showToolbar, setShowToolbar] = useState(false);
+  
+  // Store des conversations par assistant pour les garder séparées
+  const [conversationsByAssistant, setConversationsByAssistant] = useState<{[key: string]: Message[]}>({});
   
   // Refs pour le TextInput, auto-scroll et AbortController
   const textInputRef = useRef<TextInput>(null);
@@ -47,6 +58,115 @@ export default function ChatInterface() {
   
   // State pour le streaming optimisé
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  
+  // Refs pour optimiser l'accumulation de texte streaming
+  const streamingTextRef = useRef<string>('');
+  const updateTimeoutRef = useRef<number | null>(null);
+
+  // Fonction optimisée pour l'accumulation de chunks avec batching
+  const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
+    // Accumuler le texte dans la ref
+    streamingTextRef.current += newChunk;
+    
+    // Annuler le timeout précédent s'il existe
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    // Programmer une mise à jour avec debouncing (mais pas trop longtemps pour garder la fluidité)
+    updateTimeoutRef.current = setTimeout(() => {
+      const accumulatedText = streamingTextRef.current;
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, text: accumulatedText }
+            : msg
+        )
+      );
+    }, 50); // 50ms de debouncing pour éviter les updates trop fréquents
+  }, []);
+
+  // Fonction pour finaliser le streaming
+  const finalizeStreamingMessage = useCallback((messageId: string, fullText: string) => {
+    // Annuler tout timeout en cours
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    
+    // Faire la mise à jour finale
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: fullText, streaming: false }
+          : msg
+      )
+    );
+    
+    // Réinitialiser la ref
+    streamingTextRef.current = '';
+  }, []);
+
+  // Fonction pour gérer les erreurs de streaming
+  const handleStreamingError = useCallback((messageId: string, errorMessage: string) => {
+    // Annuler tout timeout en cours
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    
+    // Remplacer le message par le message d'erreur
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: errorMessage, streaming: false }
+          : msg
+      )
+    );
+    
+    // Réinitialiser la ref
+    streamingTextRef.current = '';
+  }, []);
+
+  // Cleanup des timeouts au démontage du composant
+  useEffect(() => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Fonction pour réinitialiser la conversation actuelle
+  const resetCurrentConversation = () => {
+    console.log('🔄 Réinitialisation de la conversation pour:', currentAssistant);
+    setMessages([]);
+    setConversationStarted(false);
+    setInputText('');
+    
+    // Nettoyer aussi le store des conversations pour cet assistant
+    if (currentAssistant) {
+      setConversationsByAssistant(prev => ({
+        ...prev,
+        [currentAssistant]: []
+      }));
+    }
+    
+    // Arrêter toute génération en cours
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsAITyping(false);
+      setStreamingMessageId(null);
+    }
+  };
+
+  // Exposer la fonction de reset via callback
+  useEffect(() => {
+    if (onResetRequest) {
+      onResetRequest.current = resetCurrentConversation;
+    }
+  }, [onResetRequest, currentAssistant]);
 
   // Récupérer les chats disponibles
   useEffect(() => {
@@ -56,10 +176,10 @@ export default function ChatInterface() {
           const userChats = await fetchUserChats();
           setChats(userChats);
           
-          // Sélectionner automatiquement le premier chat disponible
+          // Sélectionner automatiquement le chat correspondant à currentAssistant
           if (userChats.length > 0) {
-            const firstChat = userChats[0];
-            setCurrentChat(firstChat);
+            const matchingChat = userChats.find(chat => chat.name === currentAssistant) || userChats[0];
+            setCurrentChat(matchingChat);
           }
         } catch (error) {
           console.error('Erreur lors du chargement des chats:', error);
@@ -70,7 +190,45 @@ export default function ChatInterface() {
     };
     
     loadChats();
-  }, [user]);
+  }, [user, currentAssistant]);
+
+  // Ref pour éviter les dépendances circulaires
+  const conversationsRef = useRef<{[key: string]: Message[]}>({});
+
+  // Synchroniser le ref avec le state
+  useEffect(() => {
+    conversationsRef.current = conversationsByAssistant;
+  }, [conversationsByAssistant]);
+
+  // Gérer le changement d'assistant - charger la conversation correspondante
+  useEffect(() => {
+    if (!currentAssistant || !chats.length) return;
+
+    console.log('🔄 Changement d\'assistant vers:', currentAssistant);
+    
+    // Trouver le nouveau chat
+    const newChat = chats.find(chat => chat.name === currentAssistant);
+    if (newChat && newChat.id !== currentChat?.id) {
+      setCurrentChat(newChat);
+      
+      // Charger la conversation sauvegardée pour cet assistant ou partir de zéro
+      const savedMessages = conversationsRef.current[currentAssistant] || [];
+      setMessages(savedMessages);
+      setConversationStarted(savedMessages.length > 0);
+      
+      console.log(`✅ Assistant changé vers ${currentAssistant}, ${savedMessages.length} messages restaurés`);
+    }
+  }, [currentAssistant, chats, currentChat?.id]);
+
+  // Sauvegarder les messages quand ils changent (pour persister les conversations par assistant)
+  useEffect(() => {
+    if (currentChat && messages.length > 0) {
+      setConversationsByAssistant(prev => ({
+        ...prev,
+        [currentChat.name]: messages
+      }));
+    }
+  }, [messages, currentChat?.name]);
 
   // Auto-scroll optimisé pendant le streaming
   useEffect(() => {
@@ -143,6 +301,13 @@ export default function ChatInterface() {
     setIsAITyping(true);
     setStreamingMessageId(assistantMessageId);
 
+    // Réinitialiser la ref de streaming pour ce nouveau message
+    streamingTextRef.current = '';
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+
     // Créer AbortController pour pouvoir arrêter le streaming
     abortControllerRef.current = new AbortController();
 
@@ -170,31 +335,19 @@ export default function ChatInterface() {
         }
       ];
 
-      // Callbacks optimisés pour le streaming (inspirés du guide technique)
+      // Callbacks optimisés pour le streaming avec batching pour éviter les boucles infinies
       const streamingCallbacks: StreamingCallbacks = {
-        // Callback immédiat pour chaque chunk - CRUCIAL pour la rapidité
+        // Callback immédiat pour chaque chunk - optimisé avec debouncing
         onChunk: (chunk: string) => {
-          setMessages(prev => 
-            prev.map(msg => 
-              msg.id === assistantMessageId 
-                ? { ...msg, text: msg.text + chunk } // Accumulation simple et immédiate
-                : msg
-            )
-          );
+          updateStreamingMessage(assistantMessageId, chunk);
         },
         
         // Callback de fin de streaming
         onComplete: (fullResponse: string) => {
           console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
           
-          // Finaliser le message et arrêter les indicateurs
-          setMessages(prev => 
-            prev.map(msg => 
-              msg.id === assistantMessageId 
-                ? { ...msg, text: fullResponse, streaming: false }
-                : msg
-            )
-          );
+          // Finaliser le message avec le texte complet
+          finalizeStreamingMessage(assistantMessageId, fullResponse);
           
           setIsAITyping(false);
           setStreamingMessageId(null);
@@ -211,18 +364,8 @@ export default function ChatInterface() {
             return;
           }
           
-          // Remplacer le message streaming par un message d'erreur
-          setMessages(prev => 
-            prev.map(msg => 
-              msg.id === assistantMessageId 
-                ? {
-                    ...msg,
-                    text: 'Désolé, une erreur est survenue. Veuillez réessayer.',
-                    streaming: false
-                  }
-                : msg
-            )
-          );
+          // Gérer l'erreur avec notre fonction optimisée
+          handleStreamingError(assistantMessageId, 'Désolé, une erreur est survenue. Veuillez réessayer.');
           
           setIsAITyping(false);
           setStreamingMessageId(null);
@@ -274,26 +417,86 @@ export default function ChatInterface() {
       <View style={[
         styles.messageBubble,
         item.isUser 
-          ? [styles.userMessageBubble, { backgroundColor: theme.backgrounds.userMessage }]
-          : [styles.assistantMessageBubble, { backgroundColor: theme.backgrounds.tertiary }]
+          ? [styles.userMessageBubble, { 
+              backgroundColor: theme.backgrounds.userMessage,
+              borderColor: 'rgba(255, 255, 255, 0.2)',
+            }]
+          : [styles.assistantMessageBubble, { 
+              backgroundColor: 'transparent'
+            }]
       ]}>
-        <Text style={[
-          styles.messageText,
-          { color: item.isUser ? '#ffffff' : theme.text.primary }
-        ]}>
-          {item.text}
-          {/* Indicateur de frappe pendant le streaming */}
-          {item.streaming && (
-            <Text style={{ color: theme.text.secondary }}>▊</Text>
-          )}
-        </Text>
-        <Text style={[
-          styles.messageTime,
-          { color: item.isUser ? 'rgba(255,255,255,0.7)' : theme.text.secondary }
-        ]}>
-          {item.timestamp}
-        </Text>
+        {item.isUser ? (
+          <Text style={[
+            styles.messageText,
+            { color: '#ffffff' }
+          ]}>
+            {item.text}
+          </Text>
+        ) : (
+          <View>
+            <Markdown style={{
+              body: {
+                color: theme.text.primary,
+                fontSize: 16,
+                lineHeight: 22,
+              },
+              paragraph: {
+                marginTop: 0,
+                marginBottom: 8,
+                color: theme.text.primary,
+              },
+              strong: {
+                fontWeight: 'bold',
+                color: theme.text.primary,
+              },
+              em: {
+                fontStyle: 'italic',
+                color: theme.text.primary,
+              },
+              code_inline: {
+                backgroundColor: theme.backgrounds.secondary,
+                color: theme.text.primary,
+                paddingHorizontal: 4,
+                paddingVertical: 2,
+                borderRadius: 4,
+                fontFamily: 'monospace',
+              },
+              code_block: {
+                backgroundColor: theme.backgrounds.secondary,
+                color: theme.text.primary,
+                padding: 12,
+                borderRadius: 8,
+                fontFamily: 'monospace',
+              },
+            }}>
+              {item.text + (item.streaming ? ' ▊' : '')}
+            </Markdown>
+          </View>
+        )}
+
       </View>
+      
+      {/* Bouton copier discret pour les messages de l'assistant */}
+      {!item.isUser && !item.streaming && (
+        <View style={styles.messageActions}>
+          <TouchableOpacity 
+            style={styles.copyButtonSmall}
+            onPress={() => {
+              // TODO: Implémenter la copie
+              Alert.alert('Copié !', 'Le message a été copié dans le presse-papiers');
+            }}
+          >
+            <Text style={styles.copyIconSmall}>📄</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      
+      {/* Disclaimer affiché seulement pour le dernier message de l'assistant */}
+      {!item.isUser && !item.streaming && messages[messages.length - 1]?.id === item.id && (
+        <Text style={[styles.disclaimerTextSmall, { color: theme.text.secondary }]}>
+          I-Activ peut faire des erreurs, penser à vérifier ses réponses
+        </Text>
+      )}
     </View>
   );
 
@@ -308,30 +511,34 @@ export default function ChatInterface() {
         // Affichage de l'orbe de bienvenue
         <ScrollView style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
           <View style={styles.welcomeContainer}>
-            <View style={[styles.welcomeOrb, { 
-              backgroundColor: isDark ? '#4c1d95' : '#6366f1',
+            <View style={styles.logoContainer}>
+              <Image
+                source={isDark 
+                  ? require('../assets/mobile-assets/LogoSombreTexte.png')
+                  : require('../assets/mobile-assets/LogoSombreTexteClaire2.png')
+                }
+                style={styles.welcomeLogo}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={[styles.modernWelcomeCard, { 
+              backgroundColor: theme.backgrounds.tertiary,
+              borderColor: theme.borders.primary,
             }]}>
               <Text style={[
-                styles.welcomeText,
-                { 
-                  color: isDark ? '#ffffff' : '#1f2937',
-                  textShadowColor: isDark ? 'rgba(124,58,237,0.7)' : 'rgba(255,255,255,0.9)',
-                }
+                styles.welcomeTitle,
+                { color: theme.text.primary }
               ]}>
-                Bonjour Jean{'\n\n'}
-                Comment puis-je vous{'\n'}
-                aider aujourd'hui ?
+                Bonjour {user?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || 'Jean'} !
+              </Text>
+              <Text style={[
+                styles.welcomeSubtitle,
+                { color: theme.text.secondary }
+              ]}>
+                Comment puis-je vous aider aujourd'hui ?
               </Text>
             </View>
-            <Text style={[
-              styles.noQuestionText,
-              { color: theme.text.secondary }
-            ]}>
-              {currentChat 
-                ? `Prêt à discuter avec ${currentChat.name}`
-                : 'Chargement de votre assistant...'
-              }
-            </Text>
+
           </View>
         </ScrollView>
       ) : (
@@ -361,22 +568,44 @@ export default function ChatInterface() {
           borderColor: theme.borders.chatInput || theme.borders.primary,
         }
       ]}>
-        <View style={styles.toolbar}>
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-            <TromboneIcon size={18} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-            <ImageIcon size={18} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-            <Text style={{ color: theme.text.primary, fontSize: 16 }}>📄</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-            <ToolsIcon size={18} />
-          </TouchableOpacity>
-        </View>
+        {/* Toolbar avec bouton + et outils cachés */}
+        {showToolbar && (
+          <View style={styles.toolbar}>
+            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
+              <TromboneIcon size={18} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
+              <ImageIcon size={18} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
+              <Text style={{ color: theme.text.primary, fontSize: 16 }}>📄</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
+              <ToolsIcon size={18} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.inputRow}>
+          {/* Bouton + style ChatGPT */}
+          <TouchableOpacity
+            style={[
+              styles.plusButton,
+              { 
+                backgroundColor: showToolbar ? theme.backgrounds.primary : 'transparent',
+                transform: [{ rotate: showToolbar ? '45deg' : '0deg' }]
+              }
+            ]}
+            onPress={() => setShowToolbar(!showToolbar)}
+          >
+            <Text style={[
+              styles.plusButtonText,
+              { color: theme.text.primary }
+            ]}>
+              +
+            </Text>
+          </TouchableOpacity>
+
           <TextInput
             ref={textInputRef}
             style={[
@@ -441,23 +670,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 40,
   },
-  welcomeOrb: {
-    width: Math.min(screenWidth * 0.6, 300),
-    aspectRatio: 1,
-    borderRadius: 150,
-    justifyContent: 'center',
+  logoContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 40,
   },
-  welcomeText: {
-    fontSize: 18,
+  welcomeLogo: {
+    width: Math.min(screenWidth * 0.8, 320),
+    height: 120,
+    maxWidth: '100%',
+  },
+  modernWelcomeCard: {
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  welcomeTitle: {
+    fontSize: 24,
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 28,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
+    marginBottom: 8,
   },
-  noQuestionText: {
+  welcomeSubtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  assistantReadyText: {
     fontSize: 14,
     textAlign: 'center',
     marginTop: 16,
@@ -486,10 +727,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   userMessageBubble: {
-    borderRadius: 24,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   assistantMessageBubble: {
     borderRadius: 16,
+    backgroundColor: 'transparent',
   },
   messageText: {
     fontSize: 16,
@@ -504,7 +748,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     margin: 16,
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -530,17 +775,19 @@ const styles = StyleSheet.create({
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
   },
   textInput: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 16,
     fontSize: 16,
-    minHeight: 52,
+    minHeight: 40,
     maxHeight: 250,
     borderRadius: 20,
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 36,
@@ -548,5 +795,41 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 4,
+  },
+  messageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+    marginRight: 8,
+  },
+  copyButtonSmall: {
+    padding: 4,
+    borderRadius: 4,
+    opacity: 0.6,
+  },
+  copyIconSmall: {
+    fontSize: 12,
+    color: '#ffffff',
+  },
+  disclaimerTextSmall: {
+    fontSize: 10,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 16,
+    marginHorizontal: 20,
+    opacity: 0.7,
+  },
+  plusButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  plusButtonText: {
+    fontSize: 20,
+    fontWeight: '300',
   },
 }); 

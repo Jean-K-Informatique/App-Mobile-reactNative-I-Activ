@@ -146,17 +146,24 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
           paddingTop: insets.top, // Respect de la SafeArea
         }
       ]}>
-        {/* Header avec bouton + */}
+        {/* Header avec logo */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text.primary }]}>Menu</Text>
-          
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleNewChat}
-          >
-            <Text style={{ color: theme.text.primary, fontSize: 18, fontWeight: '300' }}>+</Text>
-          </TouchableOpacity>
+          <View style={styles.logoContainer}>
+            <Image
+              source={logoSource()}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
         </View>
+
+        {/* Bouton Nouveau Chat */}
+        <TouchableOpacity
+          style={[styles.newChatButton, { backgroundColor: theme.backgrounds.primary }]}
+          onPress={handleNewChat}
+        >
+          <Text style={[styles.newChatText, { color: theme.text.primary }]}>Nouveau Chat</Text>
+        </TouchableOpacity>
 
         {/* Menu sélection assistant */}
         {showAssistantMenu && (
@@ -189,13 +196,8 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
           </View>
         )}
 
-        {/* Navigation principale */}
+        {/* Navigation principale - Liste des conversations */}
         <ScrollView style={styles.navigation}>
-          <TouchableOpacity style={styles.navButton}>
-            <HomeIcon size={18} />
-            <Text style={[styles.navText, { color: theme.text.primary }]}>Accueil</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity style={styles.navButton}>
             <HistoryIcon size={18} />
             <Text style={[styles.navText, { color: theme.text.primary }]}>Historique</Text>
@@ -207,15 +209,6 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
           {/* Menu Mon Compte */}
           {showAccountMenu && (
             <View style={[styles.accountMenuVisible, { backgroundColor: theme.backgrounds.tertiary }]}>
-              <TouchableOpacity style={styles.menuItem}>
-                <HomeIcon size={16} />
-                <Text style={[styles.menuItemText, { color: theme.text.primary }]}>Accueil</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
-                <Text style={[styles.menuItemText, { color: theme.text.primary }]}>
-                  {isDark ? '☀️' : '🌙'} Mode {isDark ? 'clair' : 'sombre'}
-                </Text>
-              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.menuItem} 
                 onPress={() => {
@@ -223,11 +216,21 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
                   setShowProfileModal(true);
                 }}
               >
-                <UserIcon size={16} />
                 <Text style={[styles.menuItemText, { color: theme.text.primary }]}>Mon profil</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem} onPress={signOut}>
-                <Text style={[styles.menuItemText, { color: '#ef4444' }]}>🚪 Déconnexion</Text>
+              <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
+                <Text style={[styles.menuItemText, { color: theme.text.primary }]}>
+                  Mode {isDark ? 'clair' : 'sombre'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.menuItem} 
+                onPress={() => {
+                  setShowAccountMenu(false);
+                  signOut();
+                }}
+              >
+                <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Déconnexion</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -241,14 +244,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
             <Text style={[styles.accountText, { color: theme.text.primary }]}>Mon Compte</Text>
           </TouchableOpacity>
 
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <Image
-              source={logoSource()}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
+
         </View>
       </View>
 
@@ -273,11 +269,22 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
     marginBottom: 16,
+  },
+  newChatButton: {
+    marginHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  newChatText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   title: {
     fontSize: 18,

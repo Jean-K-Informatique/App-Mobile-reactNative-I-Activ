@@ -22,9 +22,9 @@ export interface Theme {
 export const DARK_THEME: Theme = {
   name: 'dark',
   backgrounds: {
-    primary: '#1a1c1a',      // --color-bg-primary
-    secondary: '#222422',    // --color-bg-secondary  
-    tertiary: '#2a2c2a',     // --color-bg-tertiary
+    primary: '#222422',      // Couleur unifiée pour tout l'arrière-plan
+    secondary: '#222422',    // Même couleur pour uniformiser
+    tertiary: '#2a2c2a',     // Légèrement plus clair pour les cartes
     chatInput: '#303030',    // Couleur spécifique chat input
     userMessage: '#303030',  // Bulles utilisateur
   },

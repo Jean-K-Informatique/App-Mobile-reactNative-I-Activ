@@ -227,7 +227,7 @@ export default function AccountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#222522', // Couleur fixe selon documentation
+    backgroundColor: '#222422', // Couleur unifiée avec le thème
   },
   content: {
     flex: 1,
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
     minHeight: isDesktop ? 0 : screenHeight * 0.7,
   },
   formContainer: {
-    backgroundColor: '#222522',
+    backgroundColor: '#222422',
     borderRadius: 25,
     padding: 32,
     width: '100%',

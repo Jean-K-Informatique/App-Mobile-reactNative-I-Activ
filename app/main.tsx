@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Dimensions, SafeAreaView } from 'react-native';
+import { router } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import Sidebar from '../components/Sidebar';
 import ChatInterface from '../components/ChatInterface';
 import ChatHeader from '../components/ChatHeader';
@@ -9,17 +11,28 @@ const { width: screenWidth } = Dimensions.get('window');
 
 export default function MainScreen() {
   const { theme } = useTheme();
+  const { isAuthenticated, loading } = useAuth();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
+  
+  // Ref pour pouvoir déclencher le reset depuis le header
+  const resetChatRef = useRef<(() => void) | null>(null);
+
+  // Redirection si non authentifié
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      console.log('[MainScreen] Utilisateur non authentifié, redirection vers login');
+      router.replace('/login');
+    }
+  }, [isAuthenticated, loading]);
 
   const handleResetChat = () => {
-    // Logique de réinitialisation du chat à implémenter
-    console.log('Réinitialisation du chat');
-  };
-
-  const handleSaveChat = () => {
-    // Logique de sauvegarde du chat à implémenter
-    console.log('Sauvegarde du chat');
+    console.log('🔄 Demande de réinitialisation du chat');
+    if (resetChatRef.current) {
+      resetChatRef.current();
+    } else {
+      console.warn('⚠️ Fonction de reset non disponible');
+    }
   };
 
   const handleToggleSidebar = () => {
@@ -35,12 +48,14 @@ export default function MainScreen() {
           <ChatHeader
             currentAssistant={currentAssistant}
             onReset={handleResetChat}
-            onSave={handleSaveChat}
             onToggleSidebar={handleToggleSidebar}
           />
           
           {/* Interface de chat */}
-          <ChatInterface />
+          <ChatInterface 
+            currentAssistant={currentAssistant}
+            onResetRequest={resetChatRef}
+          />
         </View>
 
         {/* Sidebar en overlay */}
