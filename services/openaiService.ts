@@ -102,7 +102,8 @@ export async function sendMessageToOpenAIStreaming(
         buffer = xhr.responseText;
         
         if (newData) {
-          console.log('📦 Nouveau chunk reçu:', newData.length + ' caractères');
+          // ❌ SUPPRIMÉ : Log verbeux
+          // console.log('📦 Nouveau chunk reçu:', newData.length + ' caractères');
           processStreamChunk(newData, (content) => {
             fullResponse += content;
             callbacks.onChunk?.(content); // STREAMING INSTANTANÉ !

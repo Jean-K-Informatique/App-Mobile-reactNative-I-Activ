@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, ActivityIndicator, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../services/firebaseConfig';
@@ -7,23 +7,59 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import ProfileModal from './ui/ProfileModal';
 import { HomeIcon, HistoryIcon, UserIcon } from './icons/SvgIcons';
+import Svg, { Path } from 'react-native-svg';
+import { 
+  getUserConversations, 
+  deleteConversation,
+  type Conversation 
+} from '../services/conversationService';
 
 interface SidebarProps {
   expanded: boolean;
   onClose: () => void;
   onAssistantChange: (assistant: string) => void;
+  onConversationLoad?: (conversationId: string, assistantName: string) => void;
+  onRefreshRequest?: React.MutableRefObject<(() => void) | null>; // 🆕
+  onNewChat?: () => void; // New prop to trigger new chat
 }
 
-export default function Sidebar({ expanded, onClose, onAssistantChange }: SidebarProps) {
+// Icône de recherche
+function SearchIcon({ size = 20, color }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path 
+        d="M21 21L15 15L21 21ZM17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" 
+        stroke={color} 
+        strokeWidth="2" 
+        strokeLinecap="round" 
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export default function Sidebar({ expanded, onClose, onAssistantChange, onConversationLoad, onRefreshRequest, onNewChat }: SidebarProps) {
   const { theme, isDark, toggleTheme } = useTheme();
   const { signOut, user } = useAuth();
   const insets = useSafeAreaInsets();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAssistantMenu, setShowAssistantMenu] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [assistants, setAssistants] = useState<string[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
   const [loading, setLoading] = useState(false);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [isFirstLoad, setIsFirstLoad] = useState(true); // 🆕 Différencier premier chargement
+
+  const logoSource = () => {
+    return isDark 
+      ? require('../assets/mobile-assets/LogoClair.png')
+      : require('../assets/mobile-assets/LogoSombre.png');
+  };
 
   // Récupération des assistants depuis Firebase
   useEffect(() => {
@@ -32,104 +68,180 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
     }
   }, [user?.uid]);
 
+  // Récupération des conversations au démarrage (plus besoin d'attendre un clic)
+  useEffect(() => {
+    if (user?.uid) {
+      fetchConversations();
+    }
+  }, [user?.uid]);
+
+  // 🆕 Mise à jour automatique de l'historique (réduite à 30 secondes)
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const interval = setInterval(() => {
+      fetchConversations();
+    }, 30000); // 30 secondes au lieu de 10
+
+    return () => clearInterval(interval);
+  }, [user?.uid]);
+
+  // 🆕 Refetch quand la sidebar s'ouvre
+  useEffect(() => {
+    if (expanded && user?.uid) {
+      fetchConversations();
+    }
+  }, [expanded, user?.uid]);
+
+  // 🆕 Exposer fetchConversations via la ref
+  useEffect(() => {
+    if (onRefreshRequest) {
+      onRefreshRequest.current = fetchConversations;
+    }
+  }, [onRefreshRequest]);
+
+  // Filtrage des conversations en temps réel
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredConversations(conversations);
+    } else {
+      const filtered = conversations.filter(conv => 
+        conv.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        conv.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        conv.assistantName.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredConversations(filtered);
+    }
+  }, [conversations, searchQuery]);
+
   const fetchAssistants = async () => {
     try {
       setLoading(true);
-      console.log('Récupération des assistants pour l\'utilisateur:', user?.uid);
+      console.log('🔍 Récupération des assistants pour l\'utilisateur:', user?.uid);
       
-      // Utiliser la même requête que chatService.ts qui fonctionne
       const chatsQuery = query(
         collection(db, 'chats'),
-        where('allowedUsers', 'array-contains', user?.uid) // CORRECTION: allowedUsers au lieu de userId
+        where('allowedUsers', 'array-contains', user?.uid)
       );
       
       const querySnapshot = await getDocs(chatsQuery);
       const assistantNames: string[] = [];
-      const chatTitles: string[] = [];
       
-      console.log(`${querySnapshot.size} chats trouvés`);
+      console.log(`✅ ${querySnapshot.size} chats trouvés`);
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        console.log('Chat trouvé:', {
-          id: doc.id,
-          name: data.name,
-          assistantName: data.assistantName,
-          title: data.title,
-          model: data.model
-        });
-        
-        // Récupérer le nom de l'assistant depuis les données du chat
-        // Essayer plusieurs champs possibles selon votre structure de données
         const assistantName = data.name || data.assistantName || data.title || data.model || 'Assistant';
         
         if (assistantName && !assistantNames.includes(assistantName)) {
           assistantNames.push(assistantName);
         }
-        
-        // Aussi collecter les titres pour debug
-        if (data.title && !chatTitles.includes(data.title)) {
-          chatTitles.push(data.title);
-        }
       });
       
-      console.log('Assistants trouvés:', assistantNames);
-      console.log('Titres de chats:', chatTitles);
+      console.log('📋 Assistants trouvés:', assistantNames);
       
-      // Si aucun assistant trouvé, utiliser l'assistant par défaut
       if (assistantNames.length === 0) {
-        console.log('Aucun assistant trouvé, utilisation de l\'assistant par défaut');
+        console.log('⚠️ Aucun assistant trouvé, utilisation de l\'assistant par défaut');
         assistantNames.push('Assistant dev Marc Annezo');
       }
       
       setAssistants(assistantNames);
       
-      // Définir le premier assistant comme assistant actuel si ce n'est pas déjà fait
       if (assistantNames.length > 0 && !assistantNames.includes(currentAssistant)) {
         setCurrentAssistant(assistantNames[0]);
         onAssistantChange(assistantNames[0]);
       }
       
     } catch (error: any) {
-      console.error('Erreur lors de la récupération des assistants:', error);
-      console.error('Code d\'erreur:', error.code);
-      console.error('Message:', error.message);
-      
-      // En cas d'erreur de permissions, utiliser une solution temporaire
-      if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
-        console.log('Problème de permissions Firebase - utilisation de l\'assistant par défaut');
-        setAssistants(['Assistant dev Marc Annezo']);
-        alert('Problème de permissions Firebase. Contactez l\'administrateur pour configurer les règles de sécurité.');
-      } else {
-        // Autres erreurs
-        setAssistants(['Assistant dev Marc Annezo']);
-      }
+      console.error('❌ Erreur lors de la récupération des assistants:', error);
+      console.log('⚠️ Problème de permissions Firebase - utilisation de l\'assistant par défaut');
+      setAssistants(['Assistant dev Marc Annezo']);
     } finally {
       setLoading(false);
     }
   };
 
-  const logoSource = () => {
-    if (expanded) {
-      return isDark 
-        ? require('../assets/mobile-assets/LogoSombreTexteClairCote.png')
-        : require('../assets/mobile-assets/LogoSombreTexteClaire2.png');
-    } else {
-      return isDark 
-        ? require('../assets/mobile-assets/LogoSombre.png')
-        : require('../assets/mobile-assets/LogoClair.png');
+  const fetchConversations = async () => {
+    try {
+      // Montrer le loading seulement au premier chargement
+      if (isFirstLoad) {
+        setLoadingConversations(true);
+      }
+      
+      const fetchedConversations = await getUserConversations();
+      setConversations(fetchedConversations);
+      
+      if (isFirstLoad) {
+        setIsFirstLoad(false);
+      }
+    } catch (error) {
+      console.error('❌ Erreur récupération conversations sidebar:', error);
+      setConversations([]);
+    } finally {
+      if (loadingConversations) {
+        setLoadingConversations(false);
+      }
     }
   };
 
-  const handleAssistantSelect = (assistant: string) => {
-    setCurrentAssistant(assistant);
-    onAssistantChange(assistant);
-    setShowAssistantMenu(false);
+  const handleConversationSelect = (conversation: Conversation) => {
+    console.log('📝 Sélection conversation:', conversation.title);
+    
+    // Changer d'assistant si nécessaire
+    if (conversation.assistantName !== currentAssistant) {
+      setCurrentAssistant(conversation.assistantName);
+      onAssistantChange(conversation.assistantName);
+    }
+    
+    // Charger la conversation si le callback est fourni
+    if (onConversationLoad) {
+      onConversationLoad(conversation.id, conversation.assistantName);
+    }
+    
+    onClose(); // Fermer la sidebar
+  };
+
+  const handleDeleteConversation = async (conversationId: string, event: any) => {
+    event.stopPropagation();
+    
+    try {
+      await deleteConversation(conversationId);
+      await fetchConversations(); // Recharger la liste
+      console.log('✅ Conversation supprimée');
+    } catch (error) {
+      console.error('❌ Erreur suppression conversation:', error);
+      alert('Impossible de supprimer la conversation');
+    }
   };
 
   const handleNewChat = () => {
-    if (loading) return; // Éviter de déclencher pendant le chargement
+    if (loading) return;
     setShowAssistantMenu(!showAssistantMenu);
+  };
+
+  const handleSearchToggle = () => {
+    setShowSearchInput(!showSearchInput);
+    if (showSearchInput) {
+      setSearchQuery(''); // Reset la recherche quand on ferme
+    }
+  };
+
+  const formatConversationDate = (timestamp: any) => {
+    try {
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      const now = new Date();
+      const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+      
+      if (diffInHours < 24) {
+        return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      } else if (diffInHours < 24 * 7) {
+        return date.toLocaleDateString('fr-FR', { weekday: 'short' });
+      } else {
+        return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+      }
+    } catch (error) {
+      return '';
+    }
   };
 
   if (!expanded) {
@@ -143,7 +255,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
         {
           backgroundColor: theme.backgrounds.secondary,
           borderRightColor: theme.borders.sidebar,
-          paddingTop: insets.top, // Respect de la SafeArea
+          paddingTop: insets.top,
         }
       ]}>
         {/* Header avec logo */}
@@ -172,36 +284,112 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
               Choisir un assistant
             </Text>
             {loading ? (
-              <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
-                Chargement des assistants...
-              </Text>
+              <ActivityIndicator size="small" color={theme.text.secondary} />
             ) : (
-              <ScrollView style={styles.assistantList}>
-                {assistants.map((assistant, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.assistantItem,
-                      currentAssistant === assistant && { backgroundColor: theme.backgrounds.primary }
-                    ]}
-                    onPress={() => handleAssistantSelect(assistant)}
-                  >
-                    <Text style={[styles.assistantText, { color: theme.text.primary }]}>
-                      {assistant}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              assistants.map((assistant, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.assistantItem}
+                  onPress={() => {
+                    setCurrentAssistant(assistant);
+                    onAssistantChange(assistant);
+                    setShowAssistantMenu(false);
+                    if (onNewChat) {
+                      onNewChat(); // Trigger new chat creation
+                    }
+                  }}
+                >
+                  <Text style={[styles.assistantText, { color: theme.text.primary }]}>
+                    {assistant}
+                  </Text>
+                </TouchableOpacity>
+              ))
             )}
           </View>
         )}
 
-        {/* Navigation principale - Liste des conversations */}
-        <ScrollView style={styles.navigation}>
-          <TouchableOpacity style={styles.navButton}>
-            <HistoryIcon size={18} />
-            <Text style={[styles.navText, { color: theme.text.primary }]}>Historique</Text>
-          </TouchableOpacity>
+        <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Section Historique - Toujours visible */}
+          <View style={styles.historySection}>
+            {/* Header avec titre et bouton recherche */}
+            <View style={styles.historyHeader}>
+              <View style={styles.historyTitleContainer}>
+                <HistoryIcon size={18} />
+                <Text style={[styles.historyTitleText, { color: theme.text.primary }]}>
+                  Historique
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.searchButton}
+                onPress={handleSearchToggle}
+              >
+                <SearchIcon size={16} color={theme.text.secondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Champ de recherche */}
+            {showSearchInput && (
+              <View style={[styles.searchContainer, { backgroundColor: theme.backgrounds.primary }]}>
+                <TextInput
+                  style={[styles.searchInput, { color: theme.text.primary }]}
+                  placeholder="Rechercher dans les conversations..."
+                  placeholderTextColor={theme.text.secondary}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoFocus
+                />
+              </View>
+            )}
+
+            {/* Liste des conversations */}
+            <View style={styles.conversationsContainer}>
+              {loadingConversations && conversations.length === 0 ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={theme.text.secondary} />
+                  <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
+                    Chargement...
+                  </Text>
+                </View>
+              ) : filteredConversations.length === 0 ? (
+                <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
+                  {searchQuery ? 'Aucune conversation trouvée' : 'Aucune conversation sauvegardée'}
+                </Text>
+              ) : (
+                filteredConversations.map((conversation) => (
+                  <TouchableOpacity
+                    key={conversation.id}
+                    style={[styles.conversationItem, { borderBottomColor: theme.borders.primary }]}
+                    onPress={() => handleConversationSelect(conversation)}
+                  >
+                    <View style={styles.conversationHeader}>
+                      <Text style={[styles.conversationTitle, { color: theme.text.primary }]} numberOfLines={1}>
+                        {conversation.title}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={(event) => handleDeleteConversation(conversation.id, event)}
+                      >
+                        <Text style={styles.deleteIcon}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.conversationMeta}>
+                      <Text style={[styles.conversationAssistant, { color: theme.text.secondary }]} numberOfLines={1}>
+                        {conversation.assistantName}
+                      </Text>
+                      <Text style={[styles.conversationDate, { color: theme.text.secondary }]}>
+                        {formatConversationDate(conversation.updatedAt)}
+                      </Text>
+                    </View>
+                    {conversation.lastMessage && (
+                      <Text style={[styles.conversationPreview, { color: theme.text.secondary }]} numberOfLines={2}>
+                        {conversation.lastMessage}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </View>
         </ScrollView>
 
         {/* Section inférieure */}
@@ -243,8 +431,6 @@ export default function Sidebar({ expanded, onClose, onAssistantChange }: Sideba
             <UserIcon size={18} />
             <Text style={[styles.accountText, { color: theme.text.primary }]}>Mon Compte</Text>
           </TouchableOpacity>
-
-
         </View>
       </View>
 
@@ -274,6 +460,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 16,
   },
+  logoContainer: {
+    height: 40,
+    justifyContent: 'center',
+  },
+  logo: {
+    height: 30,
+    width: 120,
+  },
   newChatButton: {
     marginHorizontal: 16,
     paddingVertical: 12,
@@ -286,61 +480,119 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
+  scrollContent: {
+    flex: 1,
   },
-  addButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
+  historySection: {
+    paddingHorizontal: 16,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    marginBottom: 12,
+  },
+  historyTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  historyTitleText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  searchButton: {
+    padding: 8,
+    borderRadius: 6,
+  },
+  searchContainer: {
+    marginBottom: 12,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    paddingVertical: 8,
+    fontSize: 14,
+  },
+  conversationsContainer: {
+    paddingBottom: 20,
+  },
+  conversationItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 0.5,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  conversationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  conversationTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+    marginRight: 8,
+  },
+  deleteButton: {
+    padding: 4,
+  },
+  deleteIcon: {
+    fontSize: 14,
+  },
+  conversationMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  conversationAssistant: {
+    fontSize: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  conversationDate: {
+    fontSize: 12,
+  },
+  conversationPreview: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  emptyText: {
+    textAlign: 'center',
+    fontSize: 14,
+    paddingVertical: 20,
+    fontStyle: 'italic',
   },
   assistantMenu: {
-    margin: 16,
+    marginHorizontal: 16,
     borderRadius: 8,
-    padding: 16,
-    maxHeight: 200,
+    paddingVertical: 8,
+    marginBottom: 16,
   },
   menuTitle: {
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    textAlign: 'center',
-    padding: 16,
-  },
-  assistantList: {
-    maxHeight: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   assistantItem: {
-    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 4,
-    marginBottom: 4,
+    paddingVertical: 8,
   },
   assistantText: {
-    fontSize: 14,
-  },
-  navigation: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  navButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 8,
-  },
-  navText: {
-    marginLeft: 12,
     fontSize: 14,
   },
   bottomSection: {
@@ -348,17 +600,14 @@ const styles = StyleSheet.create({
   },
   accountMenuVisible: {
     borderRadius: 8,
-    padding: 8,
-    marginBottom: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
     paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   menuItemText: {
-    marginLeft: 8,
     fontSize: 14,
   },
   accountButton: {
@@ -367,20 +616,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginBottom: 16,
   },
   accountText: {
-    marginLeft: 12,
     fontSize: 14,
     fontWeight: '500',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  logo: {
-    width: 160,
-    height: 40,
-    maxWidth: '100%',
+    marginLeft: 8,
   },
 }); 

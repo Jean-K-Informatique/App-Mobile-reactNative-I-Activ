@@ -6,33 +6,26 @@ import { NavbarIcon } from './icons/SvgIcons';
 
 interface ChatHeaderProps {
   currentAssistant: string;
-  onReset: () => void;
+  onNewChat: () => void; // Renommé de onReset à onNewChat
   onToggleSidebar: () => void;
 }
 
-// Icône Reset
-function ResetIcon({ size = 20, color }: { size?: number; color?: string }) {
+// Icône Plus pour nouveau chat
+function PlusIcon({ size = 20, color }: { size?: number; color?: string }) {
   const { theme } = useTheme();
   const iconColor = color || theme.text.primary;
 
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path 
-        d="M1 4V10H7" 
+        d="M12 2V22" 
         stroke={iconColor} 
         strokeWidth="2" 
         strokeLinecap="round" 
         strokeLinejoin="round"
       />
       <Path 
-        d="M23 20V14H17" 
-        stroke={iconColor} 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round"
-      />
-      <Path 
-        d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14L18.36 18.36A9 9 0 0 1 3.51 15" 
+        d="M2 12H22" 
         stroke={iconColor} 
         strokeWidth="2" 
         strokeLinecap="round" 
@@ -74,7 +67,7 @@ function SaveIcon({ size = 20, color }: { size?: number; color?: string }) {
   );
 }
 
-export default function ChatHeader({ currentAssistant, onReset, onToggleSidebar }: ChatHeaderProps) {
+export default function ChatHeader({ currentAssistant, onNewChat, onToggleSidebar }: ChatHeaderProps) {
   const { theme } = useTheme();
 
   return (
@@ -98,9 +91,9 @@ export default function ChatHeader({ currentAssistant, onReset, onToggleSidebar 
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
-          onPress={onReset}
+          onPress={onNewChat}
         >
-          <ResetIcon size={16} />
+          <PlusIcon size={16} />
         </TouchableOpacity>
       </View>
     </View>

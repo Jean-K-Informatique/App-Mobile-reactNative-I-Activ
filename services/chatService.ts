@@ -25,7 +25,7 @@ export async function fetchUserChats(): Promise<Chat[]> {
   
   try {
     const uid = user.uid;
-    console.log('Récupération des chats pour l\'utilisateur:', uid);
+    console.log('🔍 Récupération des chats pour l\'utilisateur:', uid);
     
     // Référence à la collection "chats"
     const chatsRef = collection(db, 'chats');
@@ -44,31 +44,16 @@ export async function fetchUserChats(): Promise<Chat[]> {
       } as Chat;
     });
     
-    console.log(`${chatList.length} chats trouvés pour l'utilisateur:`, chatList);
+    console.log(`✅ ${chatList.length} chats trouvés`);
     
-    // Log détaillé pour debugging - toutes les données nécessaires pour OpenAI
+    // Log simplifié pour chaque chat
     chatList.forEach((chat, index) => {
-      console.log(`📋 Chat ${index + 1} - Données complètes:`, {
-        id: chat.id,
-        name: chat.name,
-        description: chat.description,
-        welcomeMessage: chat.welcomeMessage,
-        model: chat.model,
-        provider: chat.provider,
-        instructions: chat.instructions || chat.systemPrompt || 'Aucune instruction',
-        allowedUsersCount: chat.allowedUsers?.length || 0,
-        // Afficher tous les autres champs disponibles
-        ...Object.fromEntries(
-          Object.entries(chat).filter(([key]) => 
-            !['id', 'name', 'description', 'welcomeMessage', 'model', 'provider', 'allowedUsers'].includes(key)
-          )
-        )
-      });
+      console.log(`📋 Chat ${index + 1}: "${chat.name}" (${chat.model || 'modèle non spécifié'})`);
     });
     
     return chatList;
   } catch (error) {
-    console.error("Erreur lors de la récupération des chats :", error);
+    console.error("❌ Erreur lors de la récupération des chats :", error);
     return [];
   }
 }

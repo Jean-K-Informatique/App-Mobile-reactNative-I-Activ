@@ -1,0 +1,483 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Fonction pour vérifier si l'utilisateur est authentifié
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Fonction pour vérifier si l'utilisateur est admin (méthode hybride)
+    function isAdmin() {
+      return isAdminOriginal() || isAdminNew();
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est admin avec l'ancienne méthode
+    function isAdminOriginal() {
+      return isAuthenticated() && (
+        request.auth.uid == 'ZTDTVL6S1iRI9O05yfq5qmp3f143' || // Admin principal
+        request.auth.uid == 'UFiHGOAkCgSaJE3WI0XyosLCKlB3' || // Admin 2
+        request.auth.uid == '76FgBGcSiPeuWj00pS46A88lmoU2' || // Admin 3
+        request.auth.uid == 'QSiSlibQ5nZeHbbeiOvL2n8WUF12'    // Admin 4
+      );
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est admin avec la nouvelle méthode
+    function isAdminNew() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/admin_roles/$(request.auth.uid));
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est admin d'une entreprise
+    function isCompanyAdmin(companyId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/company_admins/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/company_admins/$(request.auth.uid)).data.companyId == companyId;
+    }
+    
+    // Fonction pour vérifier si l'utilisateur est admin d'une entreprise (sans préciser l'entreprise)
+    function isAnyCompanyAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/company_admins/$(request.auth.uid));
+    }
+    
+    // Récupérer l'ID de l'entreprise dont l'utilisateur est admin
+    function getAdminCompanyId() {
+      return get(/databases/$(database)/documents/company_admins/$(request.auth.uid)).data.companyId;
+    }
+
+    // Collection admin_roles - Gérée uniquement par les super admins
+    match /admin_roles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Collection company_admins - Gérée uniquement par les super admins
+    match /company_admins/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || isAnyCompanyAdmin());
+      allow write: if isAdmin();
+    }
+    
+    // Collection companies - Gérée par les super admins, accessible en lecture par les admins d'entreprise
+    match /companies/{companyId} {
+      allow read: if isAuthenticated() && (isAdmin() || isCompanyAdmin(companyId));
+      allow write: if isAdmin();
+    }
+
+    // Collection tags (inclut les entreprises)
+    match /tags/{tagId} {
+      allow read: if isAuthenticated(); // Restreindre l'accès aux utilisateurs authentifiés
+      allow write: if isAdmin();
+    }
+
+    // Collection users - Accès limité par entreprise pour les admins d'entreprise
+    match /users/{userId} {
+      // Vérifier si l'utilisateur consulte son propre profil
+      function isSelf() {
+        return request.auth.uid == userId;
+      }
+      
+      // Vérifier si l'utilisateur est admin de l'entreprise à laquelle appartient l'utilisateur consulté
+      function isUserCompanyAdmin() {
+        return isAnyCompanyAdmin() && 
+               resource.data.companyId != null && 
+               resource.data.companyId == getAdminCompanyId();
+      }
+      
+      // Les utilisateurs peuvent voir leur propre profil, les super-admins peuvent voir tous les profils
+      // Les admins d'entreprise peuvent voir uniquement les utilisateurs de leur entreprise
+      allow read: if isAuthenticated() && (isSelf() || isAdmin() || isUserCompanyAdmin());
+      
+      // Les utilisateurs peuvent créer leur propre document utilisateur
+      allow create: if isAuthenticated() && isSelf();
+      
+      // Les super-admins peuvent modifier/supprimer tous les profils
+      allow update, delete: if isAdmin();
+      
+      // Les utilisateurs peuvent mettre à jour certains champs de leur propre profil
+      allow update: if isAuthenticated() && isSelf() && 
+        (request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['firstName', 'lastName', 'photoURL', 'lastLogin', 'updatedAt', 'isGoogleAccount', 'companyId', 'email', 'customizationData'])) &&
+        // ✅ SÉCURITÉ RENFORCÉE : Interdire explicitement la modification de manualSubscription par l'utilisateur
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['manualSubscription']);
+      
+      // ✅ NOUVEAU : Les super-admins peuvent gérer les accès manuels (et SEULEMENT eux)
+      allow update: if isAdmin() && 
+        (request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['manualSubscription', 'updatedAt']) ||
+         request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['manualSubscription'])) &&
+        // ✅ SÉCURITÉ : Vérifier que l'utilisateur est bien un super-admin
+        request.auth.uid in ['ZTDTVL6S1iRI9O05yfq5qmp3f143', 'UFiHGOAkCgSaJE3WI0XyosLCKlB3', '76FgBGcSiPeuWj00pS46A88lmoU2', 'QSiSlibQ5nZeHbbeiOvL2n8WUF12'];
+      
+      // Les admins d'entreprise peuvent mettre à jour certains champs des utilisateurs de leur entreprise
+      allow update: if isUserCompanyAdmin() && 
+        (request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['lastLogin', 'updatedAt'])) &&
+        // ✅ SÉCURITÉ : Les admins d'entreprise ne peuvent PAS modifier manualSubscription
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['manualSubscription']);
+      
+      // Les admins d'entreprise peuvent supprimer les utilisateurs de leur entreprise
+      allow delete: if isUserCompanyAdmin();
+    }
+
+    // Collection chats - Accès limité aux super-admins pour l'écriture et aux utilisateurs pour la lecture
+    match /chats/{chatId} {
+      // Vérifier si l'utilisateur est admin de l'entreprise associée au chat
+      function isCompanyAdminForChat() {
+        return isAnyCompanyAdmin() && (
+          // Si le chat a un companyId spécifique
+          (resource.data.companyId != null && resource.data.companyId == getAdminCompanyId()) ||
+          // Si le chat a un tableau companyIds
+          (resource.data.companyIds != null && resource.data.companyIds.hasAny([getAdminCompanyId()])) ||
+          // Si le chat n'a pas de restriction d'entreprise
+          (resource.data.companyId == null && (resource.data.companyIds == null || resource.data.companyIds.size() == 0))
+        );
+      }
+      
+      // Permettre la lecture aux utilisateurs authentifiés qui ont accès au chat
+      // ou aux administrateurs
+      // ✅ SÉCURITÉ RENFORCÉE : Lecture stricte des chats
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        isCompanyAdminForChat() || 
+        (resource.data.allowedUsers != null && resource.data.allowedUsers.hasAny([request.auth.uid]))
+      );
+      
+      // Création et suppression réservées aux super-admins
+      allow create, delete: if isAdmin();
+      
+      // Permettre aux admins d'entreprise de mettre à jour uniquement le champ allowedUsers des chats
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        isCompanyAdminForChat() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['allowedUsers', 'updatedAt', 'updatedBy'])
+      );
+      
+      // ✅ NOUVELLE RÈGLE : Permettre au système d'abonnement de modifier allowedUsers
+      allow update: if isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['allowedUsers', 'updatedAt', 'updatedBy']) &&
+        (
+          // ✅ AMÉLIORATION : Supporter tous les types d'updates automatiques d'abonnement
+          request.resource.data.updatedBy in [
+            'subscription_system', 
+            'subscription_cleanup', 
+            'subscription_auto_basic',
+            'subscription_auto_essential', 
+            'subscription_auto_performance',
+            'subscription_auto_unlimited',
+            'subscription_auto_premium'
+          ] ||
+          // ✅ NOUVEAU : Vérifier que updatedBy commence par 'subscription_'
+          (request.resource.data.updatedBy is string && 
+           request.resource.data.updatedBy.size() > 12 &&
+           request.resource.data.updatedBy[0:13] == 'subscription_')
+        ) &&
+        // ✅ SÉCURITÉ : L'utilisateur ne peut se modifier que lui-même dans allowedUsers
+        (
+          // Cas 1: Ajout de l'utilisateur à allowedUsers
+          (resource.data.allowedUsers == null || !resource.data.allowedUsers.hasAny([request.auth.uid])) &&
+          request.resource.data.allowedUsers.hasAny([request.auth.uid]) &&
+          request.resource.data.allowedUsers.size() == (resource.data.allowedUsers != null ? resource.data.allowedUsers.size() + 1 : 1) ||
+          // Cas 2: Suppression de l'utilisateur d'allowedUsers  
+          resource.data.allowedUsers != null && 
+          resource.data.allowedUsers.hasAny([request.auth.uid]) &&
+          !request.resource.data.allowedUsers.hasAny([request.auth.uid]) &&
+          request.resource.data.allowedUsers.size() == resource.data.allowedUsers.size() - 1
+        );
+    }
+
+    // Collection documents - Accessible en lecture aux utilisateurs authentifiés, écriture par les super-admins
+    match /documents/{documentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Collection document_chunks - Accessible en lecture aux utilisateurs authentifiés, écriture par les super-admins
+    match /document_chunks/{chunkId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Collection messages - Accessible en lecture aux utilisateurs authentifiés, écriture par tous les utilisateurs
+    match /chats/{chatId}/messages/{messageId} {
+      function hasChatAccess() {
+        return request.auth != null && (get(/databases/$(database)/documents/chats/$(chatId)).data.allowedUsers.hasAny([request.auth.uid]) || isAdmin());
+      }
+      allow read: if hasChatAccess();
+      allow create: if hasChatAccess() && (request.resource.data.uid == request.auth.uid || request.resource.data.uid == 'assistant'); // Allow 'assistant' for AI if user has access
+      allow update, delete: if isAdmin();
+    }
+    
+    // Collection dalle_quotas - Gérée uniquement par les super-admins
+    match /dalle_quotas/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+    
+    // Collection usage - Statistiques d'utilisation, accessible uniquement aux super-admins, et autorisation d'écriture pour les utilisateurs authentifiés
+    match /usage/{usageId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+    
+    // Collection user_totals - Totaux par utilisateur, accessible aux utilisateurs pour leur propre total
+    match /user_totals/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+    
+    // Collection sessions - Gestion des sessions utilisateur
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated() && (request.auth.uid == sessionId || isAdmin());
+      allow create, update: if isAuthenticated() && (request.auth.uid == sessionId || isAdmin());
+    }
+    
+    // Collection quick_questions - Questions rapides gérées par les super-admins
+    match /quick_questions/{questionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Collection assistants_recherche - Assistants de recherche configurables
+    match /assistants_recherche/{assistantId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // ========== NOUVELLES RÈGLES POUR LE SYSTÈME D'ABONNEMENTS ==========
+    
+    // Collection chat_plan_associations - Gestion des associations chats ↔ plans d'abonnement
+    match /chat_plan_associations/{associationId} {
+      // ✅ CORRECTION : Permettre la lecture aux utilisateurs authentifiés pour les services abonnement
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Mise à jour des règles users pour inclure les données d'abonnement
+    // (Les règles users existantes sont déjà définies plus haut, mais on ajoute un commentaire)
+    // Les champs subscription, usage, limits dans la collection users sont déjà couverts
+    // par les règles existantes qui permettent aux admins et aux utilisateurs de modifier leurs propres données
+    
+    // Collection web_search_usage - Quotas de recherche Internet par utilisateur/jour
+    match /web_search_usage/{usageId} {
+      // Extraire l'ID utilisateur du document (format: userId_YYYY-MM-DD)
+      function getUserIdFromUsageId() {
+        return usageId.split('_')[0];
+      }
+      
+      // Vérifier si l'utilisateur consulte son propre usage
+      function isOwnUsage() {
+        return request.auth.uid == getUserIdFromUsageId();
+      }
+      
+      // Lecture: utilisateur pour son propre usage ou admins pour tous
+      allow read: if isAuthenticated() && (isOwnUsage() || isAdmin());
+      
+      // Création/Mise à jour: utilisateur pour son propre usage ou admins pour tous
+      allow create, update: if isAuthenticated() && (
+        (isOwnUsage() && request.resource.data.userId == request.auth.uid) || 
+        isAdmin()
+      );
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+
+    // Collection user_subscriptions - Gestion des abonnements utilisateur
+    match /user_subscriptions/{userId} {
+      // Vérifier si l'utilisateur consulte son propre abonnement
+      function isOwnSubscription() {
+        return request.auth.uid == userId;
+      }
+      
+      // Lecture: utilisateur pour son propre abonnement ou admins pour tous
+      allow read: if isAuthenticated() && (isOwnSubscription() || isAdmin());
+      
+      // Création/Mise à jour: uniquement les admins (pour sécurité des abonnements)
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+
+    // Collection subscriptions - Abonnements Stripe synchronisés via webhook
+    match /subscriptions/{subscriptionId} {
+      // ✅ SÉCURITÉ RENFORCÉE : Fonction pour vérifier l'accès avec priorité userId
+      function isOwnSubscription() {
+        return isAuthenticated() && (
+          // ✅ PRIORITÉ 1: Si userId est renseigné, vérification stricte
+          (resource.data.userId != null && resource.data.userId == request.auth.uid) ||
+          // ✅ PRIORITÉ 2: Si userId est null, fallback par email (cas orphelins temporaires)
+          // Utiliser l'email depuis le token Firebase (plus fiable)
+          (resource.data.userId == null && resource.data.customer_email == request.auth.token.email) ||
+          // ✅ PRIORITÉ 3: Fallback avec email depuis les identités Firebase
+          (resource.data.userId == null && 
+           request.auth.token.firebase != null && 
+           request.auth.token.firebase.identities != null &&
+           request.auth.token.firebase.identities.email != null &&
+           resource.data.customer_email in request.auth.token.firebase.identities.email)
+        );
+      }
+      
+      // Lecture: utilisateur pour son propre abonnement OU admins pour tous
+      allow read: if isAuthenticated() && (isOwnSubscription() || isAdmin());
+      
+      // Création/Mise à jour: admins + service webhook (pour synchronisation Stripe)
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+
+    // ✅ NOUVELLES COLLECTIONS SYSTÈME ABONNEMENTS WEBHOOK
+    
+    // Collection subscription_activity - Activité temps réel des abonnements
+    match /subscription_activity/{activityId} {
+      // Fonction pour vérifier si l'utilisateur consulte sa propre activité
+      function isOwnActivity() {
+        return isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
+          (resource.data.customer_email == request.auth.token.email) ||
+          (request.auth.token.firebase != null && 
+           request.auth.token.firebase.identities != null &&
+           request.auth.token.firebase.identities.email != null &&
+           resource.data.customer_email in request.auth.token.firebase.identities.email)
+        );
+      }
+      
+      // Lecture: utilisateur pour sa propre activité OU admins pour tous
+      allow read: if isAuthenticated() && (isOwnActivity() || isAdmin());
+      
+      // Création/Mise à jour: admins + service webhook
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+    
+    // Collection payments - Historique des paiements Stripe
+    match /payments/{paymentId} {
+      // Fonction pour vérifier si l'utilisateur consulte ses propres paiements
+      function isOwnPayment() {
+        return isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
+          (resource.data.customer_email == request.auth.token.email) ||
+          (request.auth.token.firebase != null && 
+           request.auth.token.firebase.identities != null &&
+           request.auth.token.firebase.identities.email != null &&
+           resource.data.customer_email in request.auth.token.firebase.identities.email)
+        );
+      }
+      
+      // Lecture: utilisateur pour ses propres paiements OU admins pour tous
+      allow read: if isAuthenticated() && (isOwnPayment() || isAdmin());
+      
+      // Création/Mise à jour: admins + service webhook
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+    
+    // Collection payment_failures - Échecs de paiement
+    match /payment_failures/{failureId} {
+      // Fonction pour vérifier si l'utilisateur consulte ses propres échecs
+      function isOwnFailure() {
+        return isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
+          (resource.data.customer_email == request.auth.token.email) ||
+          (request.auth.token.firebase != null && 
+           request.auth.token.firebase.identities != null &&
+           request.auth.token.firebase.identities.email != null &&
+           resource.data.customer_email in request.auth.token.firebase.identities.email)
+        );
+      }
+      
+      // Lecture: utilisateur pour ses propres échecs OU admins pour tous
+      allow read: if isAuthenticated() && (isOwnFailure() || isAdmin());
+      
+      // Création/Mise à jour: admins + service webhook
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+    
+    // Collection user_access_cache - Cache des droits utilisateur
+    match /user_access_cache/{userId} {
+      // Vérifier si l'utilisateur consulte son propre cache
+      function isOwnCache() {
+        return request.auth.uid == userId;
+      }
+      
+      // Lecture: utilisateur pour son propre cache OU admins pour tous
+      allow read: if isAuthenticated() && (isOwnCache() || isAdmin());
+      
+      // Création/Mise à jour: admins + service webhook
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+    
+    // Collection orphan_subscriptions - Abonnements sans utilisateur Firebase
+    match /orphan_subscriptions/{orphanId} {
+      // Lecture: uniquement les admins (données sensibles)
+      allow read: if isAdmin();
+      
+      // Création/Mise à jour: admins + service webhook
+      allow create, update: if isAdmin();
+      
+      // Suppression: uniquement les admins
+      allow delete: if isAdmin();
+    }
+
+    // ========== 🆕 NOUVELLES RÈGLES POUR L'HISTORIQUE DES CONVERSATIONS ==========
+    
+    // Collection conversations - Gestion de l'historique des conversations utilisateur
+    match /conversations/{conversationId} {
+      // Vérifier si l'utilisateur est propriétaire de la conversation
+      function isOwnConversation() {
+        return isAuthenticated() && request.auth.uid == resource.data.userId;
+      }
+      
+      // Vérifier si l'utilisateur est propriétaire lors de la création
+      function isCreatingOwnConversation() {
+        return isAuthenticated() && request.auth.uid == request.resource.data.userId;
+      }
+      
+      // Lecture: utilisateur pour ses propres conversations OU admins pour toutes
+      allow read: if isAuthenticated() && (isOwnConversation() || isAdmin());
+      
+      // Création: utilisateur pour ses propres conversations OU admins
+      allow create: if isAuthenticated() && (isCreatingOwnConversation() || isAdmin());
+      
+      // Mise à jour: utilisateur pour ses propres conversations OU admins
+      allow update: if isAuthenticated() && (isOwnConversation() || isAdmin());
+      
+      // Suppression: utilisateur pour ses propres conversations OU admins
+      allow delete: if isAuthenticated() && (isOwnConversation() || isAdmin());
+    }
+    
+    // Collection messages des conversations - Sous-collection de conversations
+    match /conversations/{conversationId}/messages/{messageId} {
+      // Vérifier si l'utilisateur possède la conversation parente
+      function ownsParentConversation() {
+        return isAuthenticated() && 
+               request.auth.uid == get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId;
+      }
+      
+      // Lecture: utilisateur propriétaire de la conversation OU admins
+      allow read: if isAuthenticated() && (ownsParentConversation() || isAdmin());
+      
+      // Création: utilisateur propriétaire de la conversation OU admins
+      allow create: if isAuthenticated() && (ownsParentConversation() || isAdmin());
+      
+      // Mise à jour: utilisateur propriétaire de la conversation OU admins
+      allow update: if isAuthenticated() && (ownsParentConversation() || isAdmin());
+      
+      // Suppression: utilisateur propriétaire de la conversation OU admins
+      allow delete: if isAuthenticated() && (ownsParentConversation() || isAdmin());
+    }
+  }
+} 

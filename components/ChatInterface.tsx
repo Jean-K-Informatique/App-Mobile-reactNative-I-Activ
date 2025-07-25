@@ -20,6 +20,17 @@ import { useAuth } from '../contexts/AuthContext';
 import { fetchUserChats, type Chat } from '../services/chatService';
 import { sendMessageToOpenAIStreaming, type ChatMessage, type StreamingCallbacks } from '../services/openaiService';
 import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon } from './icons/SvgIcons';
+import { 
+  getOrCreateConversation, 
+  createConversation, 
+  saveMessage, 
+  getUserConversations, 
+  getConversationMessages,
+  deletePrivateConversations,
+  verifyConversationOwnership,
+  updateConversationTimestamp,
+  type Conversation 
+} from '../services/conversationService';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -34,9 +45,18 @@ interface Message {
 interface ChatInterfaceProps {
   currentAssistant: string;
   onResetRequest?: React.MutableRefObject<(() => void) | null>;
+  loadConversationId?: string | null;
+  onConversationLoaded?: () => void;
+  onNewConversationCreated?: () => void; // 🆕 Callback pour notifier la création
 }
 
-export default function ChatInterface({ currentAssistant, onResetRequest }: ChatInterfaceProps) {
+export default function ChatInterface({ 
+  currentAssistant, 
+  onResetRequest, 
+  loadConversationId, 
+  onConversationLoaded,
+  onNewConversationCreated 
+}: ChatInterfaceProps) {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -47,6 +67,10 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
+  
+  // Mode navigation privée
+  const [isPrivateMode, setIsPrivateMode] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   // Store des conversations par assistant pour les garder séparées
   const [conversationsByAssistant, setConversationsByAssistant] = useState<{[key: string]: Message[]}>({});
@@ -62,6 +86,81 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
   // Refs pour optimiser l'accumulation de texte streaming
   const streamingTextRef = useRef<string>('');
   const updateTimeoutRef = useRef<number | null>(null);
+
+  const [forceNewConversation, setForceNewConversation] = useState(false);
+
+  // Effet pour charger une conversation spécifique depuis Firestore
+  useEffect(() => {
+    if (loadConversationId && currentChat) {
+      loadConversationFromFirestore(loadConversationId);
+    }
+  }, [loadConversationId, currentChat]);
+
+  // Set forceNew for initial conversation on app start
+  useEffect(() => {
+    if (!conversationStarted && !loadConversationId && messages.length === 0) {
+      setForceNewConversation(true);
+    }
+  }, []);
+
+  // Fonction pour charger une conversation depuis Firestore
+  const loadConversationFromFirestore = async (conversationId: string) => {
+    try {
+      console.log('📖 Chargement conversation depuis Firestore:', conversationId);
+      
+      // Vérifier la propriété de la conversation
+      const hasAccess = await verifyConversationOwnership(conversationId);
+      if (!hasAccess) {
+        console.error('❌ Accès refusé à la conversation:', conversationId);
+        return;
+      }
+
+      // Récupérer les messages de la conversation
+      const conversationMessages = await getConversationMessages(conversationId);
+      
+      if (conversationMessages.length > 0) {
+        // Convertir les messages Firestore en messages locaux
+        const localMessages: Message[] = conversationMessages.map(msg => ({
+          id: msg.id,
+          text: msg.text,
+          isUser: msg.isUser,
+          timestamp: msg.timestamp.toDate().toLocaleTimeString('fr-FR', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          })
+        }));
+
+        // Mettre à jour l'état
+        setMessages(localMessages);
+        setConversationStarted(true);
+        setCurrentConversationId(conversationId);
+        
+        // Faire remonter la conversation dans l'historique
+        await updateConversationTimestamp(conversationId);
+        
+        // Sauvegarder dans le store local aussi
+        if (currentChat) {
+          setConversationsByAssistant(prev => ({
+            ...prev,
+            [currentChat.name]: localMessages
+          }));
+        }
+
+        console.log(`✅ ${localMessages.length} messages chargés depuis Firestore`);
+        console.log('⬆️ Conversation remontée dans l\'historique');
+        
+        // Notifier que le chargement est terminé
+        if (onConversationLoaded) {
+          onConversationLoaded();
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement conversation:', error);
+      if (onConversationLoaded) {
+        onConversationLoaded();
+      }
+    }
+  };
 
   // Fonction optimisée pour l'accumulation de chunks avec batching
   const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
@@ -137,12 +236,180 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
     };
   }, []);
 
+  // Fonction pour basculer le mode privé
+  const togglePrivateMode = () => {
+    if (!isPrivateMode) {
+      // Activation du mode privé
+      Alert.alert(
+        "🕵️ Mode Navigation Privée",
+        "En mode navigation privée :\n\n• Vos conversations ne seront PAS sauvegardées\n• Aucun historique ne sera conservé\n• Les messages seront supprimés à la fermeture\n\nContinuer ?",
+        [
+          { text: "Annuler", style: "cancel" },
+          { 
+            text: "Activer le Mode Privé", 
+            style: "default",
+            onPress: () => {
+              setIsPrivateMode(true);
+              console.log('🕵️ Mode navigation privée activé');
+            }
+          }
+        ]
+      );
+    } else {
+      // Désactivation du mode privé
+      if (conversationStarted && messages.length > 0) {
+        Alert.alert(
+          "🔓 Quitter le Mode Privé",
+          "Cette conversation sera définitivement supprimée.\n\nQue souhaitez-vous faire ?",
+          [
+            { 
+              text: "Supprimer", 
+              style: "destructive",
+              onPress: () => {
+                setIsPrivateMode(false);
+                resetCurrentConversation();
+                console.log('🔓 Mode navigation privée désactivé - conversation supprimée');
+              }
+            },
+            { 
+              text: "Sauvegarder et Quitter", 
+              style: "default",
+              onPress: async () => {
+                setIsPrivateMode(false);
+                if (currentChat && messages.length > 0) {
+                  await saveCurrentConversation();
+                }
+                console.log('🔓 Mode navigation privée désactivé - conversation sauvegardée');
+              }
+            },
+            { text: "Annuler", style: "cancel" }
+          ]
+        );
+      } else {
+        setIsPrivateMode(false);
+        console.log('🔓 Mode navigation privée désactivé');
+      }
+    }
+  };
+
+  // Fonction pour gérer la création d'une nouvelle conversation en mode privé
+  const handleNewPrivateConversation = () => {
+    if (isPrivateMode && conversationStarted && messages.length > 0) {
+      Alert.alert(
+        "⚠️ Nouvelle Conversation Privée",
+        "Attention ! Vous êtes en mode navigation privée.\n\nSi vous commencez une nouvelle conversation, la conversation actuelle sera définitivement perdue.\n\nContinuer ?",
+        [
+          { text: "Annuler", style: "cancel" },
+          { 
+            text: "Continuer", 
+            style: "destructive",
+            onPress: () => {
+              resetCurrentConversation();
+              console.log('🗑️ Conversation privée précédente supprimée pour nouvelle conversation');
+            }
+          }
+        ]
+      );
+      return false; // Bloquer l'envoi du message
+    }
+    return true; // Autoriser l'envoi
+  };
+
+  // Effet pour nettoyer les conversations privées au changement d'assistant
+  useEffect(() => {
+    if (isPrivateMode && conversationStarted && messages.length > 0) {
+      const cleanup = async () => {
+        try {
+          await deletePrivateConversations();
+          console.log('🧹 Conversations privées nettoyées');
+        } catch (error) {
+          console.error('❌ Erreur nettoyage conversations privées:', error);
+        }
+      };
+      
+      // Nettoyer après un délai pour éviter les conflits
+      const timeoutId = setTimeout(cleanup, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentAssistant, isPrivateMode]);
+
+  // Effet pour avertir l'utilisateur lors de la fermeture de l'app en mode privé
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'background' && isPrivateMode && conversationStarted && messages.length > 0) {
+        // L'application passe en arrière-plan avec une conversation privée active
+        console.log('⚠️ Application en arrière-plan avec conversation privée active');
+        
+        // Programmer la suppression des conversations privées
+        setTimeout(async () => {
+          try {
+            await deletePrivateConversations();
+            console.log('🧹 Conversations privées supprimées (arrière-plan)');
+          } catch (error) {
+            console.error('❌ Erreur suppression conversations privées:', error);
+          }
+        }, 5000); // Attendre 5 secondes avant suppression
+      }
+    };
+
+    // Note: Dans un vrai projet, vous utiliseriez AppState de React Native
+    // AppState.addEventListener('change', handleAppStateChange);
+    // return () => AppState.removeEventListener('change', handleAppStateChange);
+  }, [isPrivateMode, conversationStarted, messages.length]);
+
+  // Fonction pour sauvegarder la conversation actuelle
+  const saveCurrentConversation = async () => {
+    if (!currentChat || !conversationStarted || isPrivateMode) return;
+
+    try {
+      let conversationId = currentConversationId;
+      
+      // Créer ou récupérer une conversation existante si nécessaire
+      if (!conversationId && messages.length > 0) {
+        const firstUserMessage = messages.find(msg => msg.isUser);
+        if (firstUserMessage) {
+          // Utiliser getOrCreateConversation pour éviter les duplications
+          conversationId = await getOrCreateConversation(
+            currentChat.id,
+            currentChat.name,
+            firstUserMessage.text,
+            false,
+            forceNewConversation
+          );
+          setCurrentConversationId(conversationId);
+          
+          // 🆕 Rafraîchir l'historique seulement lors de la première création
+          if (onNewConversationCreated) {
+            onNewConversationCreated();
+          }
+
+          // Reset forceNew after creation
+          setForceNewConversation(false);
+        }
+      }
+
+      // Sauvegarder tous les messages non encore sauvegardés
+      if (conversationId) {
+        for (let i = 0; i < messages.length; i++) {
+          const message = messages[i];
+          if (message.id !== 'welcome' && !message.streaming) {
+            await saveMessage(conversationId, message.text, message.isUser, i);
+          }
+        }
+        console.log('💾 Conversation sauvegardée:', conversationId);
+      }
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde conversation:', error);
+    }
+  };
+
   // Fonction pour réinitialiser la conversation actuelle
   const resetCurrentConversation = () => {
     console.log('🔄 Réinitialisation de la conversation pour:', currentAssistant);
     setMessages([]);
     setConversationStarted(false);
     setInputText('');
+    setCurrentConversationId(null);
     
     // Nettoyer aussi le store des conversations pour cet assistant
     if (currentAssistant) {
@@ -164,7 +431,11 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
   // Exposer la fonction de reset via callback
   useEffect(() => {
     if (onResetRequest) {
-      onResetRequest.current = resetCurrentConversation;
+      onResetRequest.current = (forceNew = false) => {
+        console.log('🔄 Reset conversation with forceNew:', forceNew);
+        resetCurrentConversation();
+        setForceNewConversation(forceNew);
+      };
     }
   }, [onResetRequest, currentAssistant]);
 
@@ -227,8 +498,17 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
         ...prev,
         [currentChat.name]: messages
       }));
+
+      // Sauvegarder automatiquement si pas en mode privé
+      if (!isPrivateMode && conversationStarted) {
+        const timeoutId = setTimeout(() => {
+          saveCurrentConversation();
+        }, 2000); // Attendre 2 secondes après la dernière modification
+
+        return () => clearTimeout(timeoutId);
+      }
     }
-  }, [messages, currentChat?.name]);
+  }, [messages, currentChat?.name, isPrivateMode, conversationStarted]);
 
   // Auto-scroll optimisé pendant le streaming
   useEffect(() => {
@@ -253,6 +533,11 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
 
   const sendMessage = async () => {
     if (!inputText.trim() || !currentChat || isAITyping) return;
+
+    // Vérifier si on peut envoyer le message en mode privé
+    if (!handleNewPrivateConversation()) {
+      return; // L'utilisateur a annulé
+    }
 
     const currentInput = inputText.trim();
     setInputText('');
@@ -313,6 +598,7 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
 
     try {
       console.log('🚀 Démarrage streaming optimisé avec modèle:', currentChat.model);
+      console.log('🕵️ Mode privé actif:', isPrivateMode);
 
       // Construire l'historique des messages pour OpenAI
       const openAIMessages: ChatMessage[] = [
@@ -626,6 +912,30 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
             blurOnSubmit={false}
           />
           
+          {/* Bouton Mode Navigation Privée */}
+          <TouchableOpacity
+            style={[
+              styles.privateModeButton,
+              {
+                backgroundColor: isPrivateMode 
+                  ? (isDark ? '#4A5568' : '#E2E8F0')
+                  : 'transparent'
+              }
+            ]}
+            onPress={togglePrivateMode}
+          >
+            <Text style={[
+              styles.privateModeIcon,
+              { 
+                color: isPrivateMode 
+                  ? (isDark ? '#F7FAFC' : '#1A202C')
+                  : theme.text.secondary 
+              }
+            ]}>
+              🕵️
+            </Text>
+          </TouchableOpacity>
+          
           {/* Bouton Send/Stop intelligent */}
           <TouchableOpacity
             style={[
@@ -648,6 +958,15 @@ export default function ChatInterface({ currentAssistant, onResetRequest }: Chat
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Indicateur mode privé */}
+        {isPrivateMode && (
+          <View style={[styles.privateModeIndicator, { backgroundColor: theme.backgrounds.tertiary }]}>
+            <Text style={[styles.privateModeText, { color: theme.text.secondary }]}>
+              🕵️ Mode navigation privée actif - Cette conversation ne sera pas sauvegardée
+            </Text>
+          </View>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -789,6 +1108,17 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     textAlignVertical: 'center',
   },
+  privateModeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  privateModeIcon: {
+    fontSize: 16,
+  },
   sendButton: {
     width: 36,
     height: 36,
@@ -796,6 +1126,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 4,
+  },
+  privateModeIndicator: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  privateModeText: {
+    fontSize: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   messageActions: {
     flexDirection: 'row',

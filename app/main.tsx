@@ -14,9 +14,12 @@ export default function MainScreen() {
   const { isAuthenticated, loading } = useAuth();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
+  const [loadConversationId, setLoadConversationId] = useState<string | null>(null);
   
   // Ref pour pouvoir déclencher le reset depuis le header
-  const resetChatRef = useRef<(() => void) | null>(null);
+  const resetChatRef = useRef<((forceNew?: boolean) => void) | null>(null);
+  // 🆕 Ref pour rafraîchir l'historique de la sidebar
+  const refreshHistoryRef = useRef<(() => void) | null>(null);
 
   // Redirection si non authentifié
   useEffect(() => {
@@ -26,10 +29,11 @@ export default function MainScreen() {
     }
   }, [isAuthenticated, loading]);
 
-  const handleResetChat = () => {
-    console.log('🔄 Demande de réinitialisation du chat');
+  const handleNewChat = () => {
+    console.log('➕ Création d\'un nouveau chat avec:', currentAssistant);
+    setLoadConversationId(null); // Reset du chargement de conversation
     if (resetChatRef.current) {
-      resetChatRef.current();
+      resetChatRef.current(true); // force new
     } else {
       console.warn('⚠️ Fonction de reset non disponible');
     }
@@ -37,6 +41,26 @@ export default function MainScreen() {
 
   const handleToggleSidebar = () => {
     setSidebarExpanded(!sidebarExpanded);
+  };
+
+  const handleConversationLoad = (conversationId: string, assistantName: string) => {
+    console.log('📝 Chargement conversation:', { conversationId, assistantName });
+    
+    // Changer l'assistant si nécessaire
+    if (assistantName !== currentAssistant) {
+      setCurrentAssistant(assistantName);
+    }
+    
+    // Déclencher le chargement de la conversation
+    setLoadConversationId(conversationId);
+  };
+
+  // 🆕 Fonction pour rafraîchir l'historique
+  const handleNewConversationCreated = () => {
+    console.log('🔄 Rafraîchissement historique suite à nouvelle conversation');
+    if (refreshHistoryRef.current) {
+      refreshHistoryRef.current();
+    }
   };
 
   return (
@@ -47,7 +71,7 @@ export default function MainScreen() {
           {/* Barre d'en-tête */}
           <ChatHeader
             currentAssistant={currentAssistant}
-            onReset={handleResetChat}
+            onNewChat={handleNewChat}
             onToggleSidebar={handleToggleSidebar}
           />
           
@@ -55,6 +79,9 @@ export default function MainScreen() {
           <ChatInterface 
             currentAssistant={currentAssistant}
             onResetRequest={resetChatRef}
+            loadConversationId={loadConversationId}
+            onConversationLoaded={() => setLoadConversationId(null)}
+            onNewConversationCreated={handleNewConversationCreated}
           />
         </View>
 
@@ -63,6 +90,9 @@ export default function MainScreen() {
           expanded={sidebarExpanded}
           onClose={() => setSidebarExpanded(false)}
           onAssistantChange={setCurrentAssistant}
+          onConversationLoad={handleConversationLoad}
+          onRefreshRequest={refreshHistoryRef}
+          onNewChat={handleNewChat} // Pass the new chat handler
         />
 
         {/* Overlay sombre quand sidebar ouverte */}
@@ -83,6 +113,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    position: 'relative',
   },
   mainContent: {
     flex: 1,
