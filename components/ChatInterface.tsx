@@ -21,7 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { fetchUserChats, type Chat } from '../services/chatService';
 import { 
   sendMessageToOpenAIStreamingResponses,
-  sendMessageToOpenAI,
+  sendMessageToOpenAINonStreamingResponses,
   DEFAULT_GPT5_MODEL,
   type ChatMessage, 
   type StreamingCallbacks,
@@ -108,6 +108,9 @@ export default function ChatInterface({
   const [webSourcesByMessageId, setWebSourcesByMessageId] = useState<{[id: string]: PerplexitySearchResultItem[]}>({});
   const reasoningTimerRef = useRef<number | null>(null);
   const [reasoningSeconds, setReasoningSeconds] = useState(0);
+  const [pressedItem, setPressedItem] = useState<string | null>(null);
+  const webTimerRef = useRef<number | null>(null);
+  const [webSeconds, setWebSeconds] = useState(0);
 
   // Contrôleur d'effet machine à écrire
   const typewriterTimerRef = useRef<number | null>(null);
@@ -738,6 +741,27 @@ export default function ChatInterface({
       if (willSearch) {
         try {
           console.log('🔎 Appel Perplexity (proxy) – enabled:', webSearchEnabled, 'explicit:', isExplicitSearch);
+          // Animation éphémère "Recherche en cours"
+          const webMsgId = (Date.now() + 3).toString();
+          const webEphemeral: Message = {
+            id: webMsgId,
+            text: 'Recherche en cours… • 0s\n\nNous recherchons sur Internet pour vous, veuillez patienter',
+            isUser: false,
+            timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+            streaming: true,
+            ephemeral: true,
+          };
+          setMessages(prev => [...prev, webEphemeral]);
+          setWebSeconds(0);
+          if (webTimerRef.current) clearInterval(webTimerRef.current);
+          webTimerRef.current = setInterval(() => {
+            setWebSeconds(prev => {
+              const next = prev + 1;
+              const dots = '.'.repeat((next % 3) + 1);
+              setMessages(m => m.map(msg => msg.id === webMsgId ? { ...msg, text: `Recherche en cours… • ${next}s\n\nNous recherchons sur Internet pour vous, veuillez patienter${dots}` } : msg));
+              return next;
+            });
+          }, 1000) as unknown as number;
           const query = isExplicitSearch ? currentInput.replace(/^\/chercher\s+/i, '') : currentInput;
           const resp = await perplexitySearch(query, { web_search_options: { search_context_size: 'low' } });
           console.log('🔎 Perplexity OK – sources:', (resp.search_results || []).length);
@@ -745,10 +769,15 @@ export default function ChatInterface({
           // Attacher les sources à ce message assistant en cours
           setWebSourcesByMessageId(prev => ({ ...prev, [assistantMessageId]: resp.search_results || [] }));
           console.log('🔎 Sources attachées au message:', assistantMessageId);
+          // Nettoyage animation recherche
+          if (webTimerRef.current) { clearInterval(webTimerRef.current); webTimerRef.current = null; }
+          setMessages(prev => prev.filter(m => !(m.ephemeral)));
         } catch (e: any) {
           console.warn('⚠️ Recherche web impossible:', e?.message || e);
           // Surface visuelle dans le message assistant si l'appel échoue
           updateStreamingMessage(assistantMessageId, `\n\n> Recherche web indisponible: ${e?.message || 'erreur inconnue'}.\n`);
+          if (webTimerRef.current) { clearInterval(webTimerRef.current); webTimerRef.current = null; }
+          setMessages(prev => prev.filter(m => !(m.ephemeral)));
         }
       }
 
@@ -857,11 +886,22 @@ export default function ChatInterface({
 
       // Si raisonnement élevé: certains environnements RN ne streament pas les deltas -> utiliser chat.completions non-stream (comme web)
       if (reasoningEffort === 'high') {
-        console.log('🧠 Mode raisonnement élevé: chat.completions non-stream');
-        const final = await sendMessageToOpenAI(
+        console.log('🧠 Mode raisonnement élevé: Responses non-stream');
+        // Renforcer le message système pour forcer une sortie textuelle
+        openAIMessages[0] = {
+          role: 'system',
+          content: ((currentChat?.content || currentChat?.instructions || 'Tu es un assistant IA utile.')
+            + (webContext ? ('\n\n' + webContext) : '')
+            + '\n\nConsigne: fournis une réponse finale textuelle claire et complète, sans outils ni appels externes.').slice(0, 12000)
+        };
+
+        const final = await sendMessageToOpenAINonStreamingResponses(
           openAIMessages,
-          (currentChat?.model || DEFAULT_GPT5_MODEL)
+          (currentChat?.model || DEFAULT_GPT5_MODEL),
+          reasoningEffort,
+          { maxOutputTokens: 2048 }
         );
+        console.log('🧠 Réponse non-stream longueur:', final?.length || 0, 'aperçu:', (final || '').slice(0, 120));
         finalizeStreamingMessage(assistantMessageId, final || '');
         if (reasoningTimerRef.current) { clearInterval(reasoningTimerRef.current); reasoningTimerRef.current = null; }
         setMessages(prev => prev.filter(m => !m.ephemeral));
@@ -880,8 +920,9 @@ export default function ChatInterface({
         );
       }
 
-      // Désactiver la recherche web après envoi si elle était activée par le bouton
+      // Désactiver la recherche web et revenir en raisonnement bas après l'envoi
       if (webSearchEnabled) setWebSearchEnabled(false);
+      if (reasoningEffort === 'high') setReasoningEffort('low');
 
     } catch (error: any) {
       console.error('Erreur lors du streaming:', error);
@@ -1125,35 +1166,79 @@ export default function ChatInterface({
         {showToolbar && (
           <View style={[styles.sheet, { backgroundColor: theme.backgrounds.tertiary, borderColor: theme.borders.primary }]}>
             <Text style={[styles.sheetTitle, { color: theme.text.primary }]}>Outils</Text>
-            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+            <TouchableOpacity style={[
+                styles.sheetItemFull,
+                { backgroundColor: theme.backgrounds.primary },
+                pressedItem === 'doc' && styles.sheetItemPressed
+              ]}
+              onPressIn={() => setPressedItem('doc')}
+              onPressOut={() => setPressedItem(null)}
               onPress={() => { Alert.alert('Document', 'Sélection de document à venir'); setShowToolbar(false); }}
             >
               <Text style={styles.sheetIcon}>📄</Text>
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter document</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+            <TouchableOpacity style={[
+                styles.sheetItemFull,
+                { backgroundColor: theme.backgrounds.primary },
+                pressedItem === 'photo' && styles.sheetItemPressed
+              ]}
+              onPressIn={() => setPressedItem('photo')}
+              onPressOut={() => setPressedItem(null)}
               onPress={() => { Alert.alert('Image', 'Sélection d\'image à venir'); setShowToolbar(false); }}
             >
               <ImageIcon size={18} />
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter photo</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
-              onPress={() => { setWebSearchEnabled(prev => !prev); setShowToolbar(false); }}
+            <TouchableOpacity style={[
+                styles.sheetItemFull,
+                { backgroundColor: theme.backgrounds.primary },
+                pressedItem === 'web' && styles.sheetItemPressed
+              ]}
+              onPressIn={() => setPressedItem('web')}
+              onPressOut={() => setPressedItem(null)}
+              onPress={() => {
+                setWebSearchEnabled(prev => {
+                  const next = !prev;
+                  if (next) setReasoningEffort('low'); // exclusivité: activer web => désactiver raisonnement
+                  return next;
+                });
+                setShowToolbar(false);
+              }}
             >
               <Text style={styles.sheetIcon}>🔎</Text>
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Recherche web: {webSearchEnabled ? 'activée' : 'désactivée'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
-              onPress={() => { setReasoningEffort(prev => prev === 'low' ? 'high' : 'low'); setShowToolbar(false); }}
+            <TouchableOpacity style={[
+                styles.sheetItemFull,
+                { backgroundColor: theme.backgrounds.primary },
+                pressedItem === 'brain' && styles.sheetItemPressed
+              ]}
+              onPressIn={() => setPressedItem('brain')}
+              onPressOut={() => setPressedItem(null)}
+              onPress={() => {
+                setReasoningEffort(prev => {
+                  const next = prev === 'low' ? 'high' : 'low';
+                  if (next === 'high') setWebSearchEnabled(false); // exclusivité: activer raisonnement => désactiver web
+                  return next;
+                });
+                setShowToolbar(false);
+              }}
             >
               <Text style={styles.sheetIcon}>🧠</Text>
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Raisonnement: {reasoningEffort === 'high' ? 'élevé' : 'bas'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary, justifyContent: 'space-between' }]}
+            <TouchableOpacity style={[
+                styles.sheetItemFull,
+                { backgroundColor: theme.backgrounds.primary, justifyContent: 'space-between' },
+                pressedItem === 'private' && styles.sheetItemPressed
+              ]}
+              onPressIn={() => setPressedItem('private')}
+              onPressOut={() => setPressedItem(null)}
               onPress={() => { togglePrivateMode(); setShowToolbar(false); }}
             >
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Conversation privée</Text>
@@ -1161,6 +1246,21 @@ export default function ChatInterface({
                 <View style={[styles.switchKnob, { alignSelf: isPrivateMode ? 'flex-end' : 'flex-start' }]} />
               </View>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Barre d'état des options actives (au-dessus du champ) */}
+        {(webSearchEnabled || reasoningEffort === 'high' || isPrivateMode) && (
+          <View style={styles.activeBar}>
+            {webSearchEnabled && (
+              <View style={styles.activePill}><Text style={styles.activePillText}>Rechercher</Text></View>
+            )}
+            {reasoningEffort === 'high' && (
+              <View style={styles.activePill}><Text style={styles.activePillText}>Raisonnement</Text></View>
+            )}
+            {isPrivateMode && (
+              <View style={styles.activePill}><Text style={styles.activePillText}>Privé</Text></View>
+            )}
           </View>
         )}
 
@@ -1183,17 +1283,6 @@ export default function ChatInterface({
               +
             </Text>
           </TouchableOpacity>
-
-          {/* Indicateurs d'options actives */}
-          {webSearchEnabled && (
-            <View style={styles.activeTag}><Text style={styles.activeTagText}>🔎</Text></View>
-          )}
-          {reasoningEffort === 'high' && (
-            <View style={styles.activeTag}><Text style={styles.activeTagText}>🧠</Text></View>
-          )}
-          {isPrivateMode && (
-            <View style={styles.activeTag}><Text style={styles.activeTagText}>🕵️</Text></View>
-          )}
 
           <TextInput
             ref={textInputRef}
@@ -1356,6 +1445,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
+  activeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+  activePill: {
+    backgroundColor: '#2b6cb0',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  activePillText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
   toolbar: {
     flexDirection: 'row',
     gap: 8,
@@ -1404,6 +1511,10 @@ const styles = StyleSheet.create({
   },
   sheetLabel: {
     fontSize: 14,
+  },
+  sheetItemPressed: {
+    borderWidth: 1,
+    borderColor: '#60a5fa',
   },
   switchBase: {
     width: 42,

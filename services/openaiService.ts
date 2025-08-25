@@ -32,18 +32,27 @@ export async function sendMessageToOpenAI(
   try {
     console.log('🤖 Envoi à OpenAI:', { model, messagesCount: messages.length });
     
+    // Adapter le payload pour les modèles GPT-5 qui n'acceptent pas max_tokens
+    const isGpt5 = /gpt-5/i.test(model);
+    const body: any = {
+      model: model,
+      messages: messages,
+    };
+    if (isGpt5) {
+      body.max_completion_tokens = 1200;
+      // certaines variantes n'aiment pas temperature -> l'omettre par défaut
+    } else {
+      body.max_tokens = 1000;
+      body.temperature = 0.7;
+    }
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-        max_tokens: 1000,
-        temperature: 0.7,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -52,8 +61,30 @@ export async function sendMessageToOpenAI(
       throw new Error(`Erreur API OpenAI: ${response.status}`);
     }
 
-    const data = await response.json();
-    const assistantMessage = data.choices[0]?.message?.content || 'Désolé, je n\'ai pas pu générer de réponse.';
+    const rawText = await response.text();
+    let data: any = null;
+    try { data = JSON.parse(rawText); } catch {}
+
+    if (!data) {
+      console.error('❌ OpenAI JSON parse failed, raw:', rawText.slice(0, 400));
+      throw new Error('Réponse OpenAI illisible');
+    }
+
+    const choice = Array.isArray(data.choices) ? data.choices[0] : undefined;
+    const finishReason = choice?.finish_reason;
+    const contentText = choice?.message?.content || '';
+    const usage = data.usage || {};
+    console.log('🤖 OpenAI non-stream terminé:', {
+      finishReason,
+      contentLength: contentText?.length || 0,
+      usage
+    });
+
+    const assistantMessage = contentText || '';
+    if (!assistantMessage) {
+      console.warn('⚠️ OpenAI a répondu sans texte. choices[0]:', JSON.stringify(choice || {}, null, 2).slice(0, 400));
+      return '';
+    }
     
     console.log('✅ Réponse OpenAI reçue');
     return assistantMessage;
@@ -262,7 +293,7 @@ export async function sendMessageToOpenAINonStreamingResponses(
         { type: (m.role === 'assistant' ? 'output_text' : 'input_text'), text: m.content }
       ]
     })),
-    max_output_tokens: options?.maxOutputTokens ?? 1000,
+    max_output_tokens: options?.maxOutputTokens ?? 2048,
     reasoning: { effort: reasoningEffort },
     stream: false,
   };
@@ -288,30 +319,60 @@ export async function sendMessageToOpenAINonStreamingResponses(
   let json: any = null;
   try { json = JSON.parse(text); } catch {}
 
-  if (json?.output_text && typeof json.output_text === 'string') {
-    console.log('🧠 Non-stream OK (output_text):', json.output_text.length, 'caractères');
-    return json.output_text;
-  }
+  // Extraction robuste et priorisée (évite de prendre l'id resp_*)
+  const deepExtract = (obj: any): string | null => {
+    if (!obj) return null;
+    const prefer = (s: any) => (typeof s === 'string' && /[a-zA-Z]{3,}\s+[a-zA-Z]{3,}/.test(s)) ? s : null; // doit contenir au moins un espace (phrase)
 
-  // Essayez d'extraire via structures alternatives
-  const contentArr = json?.content || json?.output || [];
-  if (Array.isArray(contentArr)) {
-    for (const c of contentArr) {
-      if ((c.type === 'output_text' || c.type === 'text') && typeof c.text === 'string') {
-        console.log('🧠 Non-stream OK (content[]):', c.text.length, 'caractères');
-        return c.text;
+    // 1) Formats prioritaires connus
+    if (typeof obj?.output_text === 'string' && obj.output_text.trim()) return obj.output_text;
+    if (Array.isArray(obj?.content)) {
+      for (const c of obj.content) {
+        if ((c?.type === 'output_text' || c?.type === 'text') && typeof c?.text === 'string' && c.text.trim()) return c.text;
       }
     }
+    if (Array.isArray(obj?.output)) {
+      for (const c of obj.output) {
+        if ((c?.type === 'output_text' || c?.type === 'text') && typeof c?.text === 'string' && c.text.trim()) return c.text;
+      }
+    }
+    const choices = obj?.choices;
+    if (Array.isArray(choices) && choices[0]?.message?.content && typeof choices[0].message.content === 'string') return choices[0].message.content;
+    if (obj?.message?.content && typeof obj.message.content === 'string') return obj.message.content;
+
+    // 2) Parcours récursif mais on ignore les clés non textuelles connues
+    if (Array.isArray(obj)) {
+      for (const it of obj) {
+        const got = deepExtract(it);
+        if (prefer(got)) return got as string;
+      }
+    } else if (typeof obj === 'object') {
+      const keys = Object.keys(obj);
+      const ignore = new Set(['id','object','model','created','created_at','usage']);
+      for (const key of keys) {
+        if (ignore.has(key)) continue;
+        const got = deepExtract(obj[key]);
+        if (prefer(got)) return got as string;
+      }
+      // Dernière chance: accepter une chaîne même sans espace si rien trouvé
+      for (const key of keys) {
+        if (ignore.has(key)) continue;
+        const val = obj[key];
+        if (typeof val === 'string' && val.trim() && !/^resp_[a-z0-9]/i.test(val)) return val;
+      }
+    } else if (typeof obj === 'string') {
+      if (prefer(obj)) return obj;
+    }
+    return null;
+  };
+
+  const extracted = deepExtract(json);
+  if (extracted && extracted.trim()) {
+    console.log('🧠 Non-stream OK (extracted):', extracted.length, 'caractères');
+    return extracted;
   }
 
-  const choices = json?.choices || [];
-  if (Array.isArray(choices) && choices[0]?.message?.content) {
-    const v = choices[0].message.content as string;
-    console.log('🧠 Non-stream OK (choices):', v.length, 'caractères');
-    return v;
-  }
-
-  console.warn('🧠 Non-stream: impossible d\'extraire du texte');
+  console.warn('🧠 Non-stream: impossible d\'extraire du texte. JSON:', text.slice(0, 500));
   return '';
 }
 // NOUVEAU: Streaming via Responses API (GPT-5, reasoning effort)
