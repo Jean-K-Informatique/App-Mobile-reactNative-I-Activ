@@ -9,7 +9,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyB4DExlcv_oHpAQN9HrnYpnOquioL4E9Bo",
   authDomain: "ia-ctive-projet-1.firebaseapp.com", 
   projectId: "ia-ctive-projet-1",
-  storageBucket: "ia-ctive-projet-1.firebasestorage.app",
+  storageBucket: "ia-ctive-projet-1.appspot.com",
   messagingSenderId: "741599469385",
   appId: "1:741599469385:web:bf23d6400983eb61e68498"
 };

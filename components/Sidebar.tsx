@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, ActivityIndicator, TextInput, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../services/firebaseConfig';
@@ -11,6 +11,8 @@ import Svg, { Path } from 'react-native-svg';
 import { 
   getUserConversations, 
   deleteConversation,
+  updateConversationTitle,
+  getConversationMessages,
   type Conversation 
 } from '../services/conversationService';
 
@@ -45,7 +47,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAssistantMenu, setShowAssistantMenu] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
-  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [showSearchInput, setShowSearchInput] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [assistants, setAssistants] = useState<string[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -54,6 +56,11 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
   const [loading, setLoading] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [isFirstLoad, setIsFirstLoad] = useState(true); // 🆕 Différencier premier chargement
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const logoSource = () => {
     return isDark 
@@ -100,18 +107,43 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
     }
   }, [onRefreshRequest]);
 
-  // Filtrage des conversations en temps réel
+  // Filtrage des conversations en temps réel avec recherche dans tous les messages
   useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredConversations(conversations);
-    } else {
-      const filtered = conversations.filter(conv => 
-        conv.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        conv.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        conv.assistantName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredConversations(filtered);
-    }
+    const performSearch = async () => {
+      const queryText = searchQuery.trim().toLowerCase();
+      if (queryText === '') {
+        setFilteredConversations(conversations);
+        return;
+      }
+
+      setIsSearching(true);
+
+      try {
+        const quickFiltered = conversations.filter(conv =>
+          conv.title.toLowerCase().includes(queryText) ||
+          (conv.lastMessage?.toLowerCase() || '').includes(queryText)
+        );
+
+        const remaining = conversations.filter(c => !quickFiltered.find(q => q.id === c.id));
+        const matchesIds: Set<string> = new Set(quickFiltered.map(c => c.id));
+
+        await Promise.all(remaining.map(async (conv) => {
+          try {
+            const msgs = await getConversationMessages(conv.id);
+            const found = msgs.some(m => (m.text || '').toLowerCase().includes(queryText));
+            if (found) {
+              matchesIds.add(conv.id);
+            }
+          } catch {}
+        }));
+
+        setFilteredConversations(conversations.filter(c => matchesIds.has(c.id)));
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    performSearch();
   }, [conversations, searchQuery]);
 
   const fetchAssistants = async () => {
@@ -137,6 +169,22 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
           assistantNames.push(assistantName);
         }
       });
+      
+      // ✅ Free tier en fallback si aucune autorisation
+      const FREE_CHAT_ID = process.env.EXPO_PUBLIC_FREE_CHAT_ID as string | undefined;
+      if (assistantNames.length === 0 && FREE_CHAT_ID) {
+        try {
+          const freeRef = collection(db, 'chats');
+          const snap = await getDocs(query(freeRef, where('isGlobalAccess', '==', true)));
+          snap.forEach((d) => {
+            if (d.id === FREE_CHAT_ID) {
+              const data = d.data();
+              const name = data.name || data.assistantName || 'Assistant';
+              assistantNames.push(name);
+            }
+          });
+        } catch {}
+      }
       
       console.log('📋 Assistants trouvés:', assistantNames);
       
@@ -201,16 +249,46 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
     onClose(); // Fermer la sidebar
   };
 
-  const handleDeleteConversation = async (conversationId: string, event: any) => {
-    event.stopPropagation();
-    
+  const handleDeleteConversation = async (conversationId: string, event?: any) => {
+    if (event?.stopPropagation) event.stopPropagation();
     try {
       await deleteConversation(conversationId);
-      await fetchConversations(); // Recharger la liste
+      await fetchConversations();
+      setOpenMenuId(null);
       console.log('✅ Conversation supprimée');
     } catch (error) {
       console.error('❌ Erreur suppression conversation:', error);
       alert('Impossible de supprimer la conversation');
+    }
+  };
+
+  const handleOpenMenu = (conversationId: string, event: any) => {
+    event.stopPropagation();
+    setOpenMenuId(prev => prev === conversationId ? null : conversationId);
+  };
+
+  const handleOpenRename = (conversationId: string, currentTitle: string) => {
+    setRenameConversationId(conversationId);
+    setRenameDraft(currentTitle);
+    setShowRenameModal(true);
+    setOpenMenuId(null);
+  };
+
+  const handleConfirmRename = async () => {
+    if (!renameConversationId) return;
+    const newTitle = renameDraft.trim();
+    if (newTitle.length === 0) {
+      setShowRenameModal(false);
+      return;
+    }
+    try {
+      await updateConversationTitle(renameConversationId, newTitle);
+      await fetchConversations();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setShowRenameModal(false);
+      setRenameConversationId(null);
     }
   };
 
@@ -220,10 +298,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
   };
 
   const handleSearchToggle = () => {
-    setShowSearchInput(!showSearchInput);
-    if (showSearchInput) {
-      setSearchQuery(''); // Reset la recherche quand on ferme
-    }
+    setSearchQuery('');
   };
 
   const formatConversationDate = (timestamp: any) => {
@@ -315,28 +390,22 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
             <View style={styles.historyHeader}>
               <View style={styles.historyTitleContainer}>
                 <HistoryIcon size={18} />
-                <Text style={[styles.historyTitleText, { color: theme.text.primary }]}>
-                  Historique
-                </Text>
+                <Text style={[styles.historyTitleText, { color: theme.text.primary }]}>Conversations</Text>
               </View>
-              <TouchableOpacity
-                style={styles.searchButton}
-                onPress={handleSearchToggle}
-              >
+              <TouchableOpacity style={styles.searchButton} onPress={handleSearchToggle}>
                 <SearchIcon size={16} color={theme.text.secondary} />
               </TouchableOpacity>
             </View>
 
             {/* Champ de recherche */}
             {showSearchInput && (
-              <View style={[styles.searchContainer, { backgroundColor: theme.backgrounds.primary }]}>
+              <View style={[styles.searchContainer, { backgroundColor: theme.backgrounds.primary }]}> 
                 <TextInput
                   style={[styles.searchInput, { color: theme.text.primary }]}
-                  placeholder="Rechercher dans les conversations..."
+                  placeholder="Rechercher..."
                   placeholderTextColor={theme.text.secondary}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  autoFocus
                 />
               </View>
             )}
@@ -350,6 +419,11 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
                     Chargement...
                   </Text>
                 </View>
+              ) : isSearching ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={theme.text.secondary} />
+                  <Text style={[styles.loadingText, { color: theme.text.secondary }]}>Recherche...</Text>
+                </View>
               ) : filteredConversations.length === 0 ? (
                 <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
                   {searchQuery ? 'Aucune conversation trouvée' : 'Aucune conversation sauvegardée'}
@@ -358,33 +432,37 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
                 filteredConversations.map((conversation) => (
                   <TouchableOpacity
                     key={conversation.id}
-                    style={[styles.conversationItem, { borderBottomColor: theme.borders.primary }]}
-                    onPress={() => handleConversationSelect(conversation)}
+                    style={[
+                      styles.conversationItem,
+                      { borderBottomColor: theme.borders.primary },
+                      openMenuId === conversation.id ? styles.conversationItemRaised : null,
+                    ]}
+                    onPress={openMenuId === conversation.id ? undefined : () => handleConversationSelect(conversation)}
+                    activeOpacity={openMenuId === conversation.id ? 1 : 0.2}
                   >
                     <View style={styles.conversationHeader}>
                       <Text style={[styles.conversationTitle, { color: theme.text.primary }]} numberOfLines={1}>
                         {conversation.title}
                       </Text>
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={(event) => handleDeleteConversation(conversation.id, event)}
-                      >
-                        <Text style={styles.deleteIcon}>🗑️</Text>
-                      </TouchableOpacity>
+                      <View style={{ position: 'relative' }}>
+                        <TouchableOpacity style={styles.moreButton} onPress={(event) => handleOpenMenu(conversation.id, event)}>
+                          <Text style={[styles.moreIcon, { color: theme.text.primary }]}>⋯</Text>
+                        </TouchableOpacity>
+                        {openMenuId === conversation.id && (
+                          <View style={[styles.itemMenu, { backgroundColor: theme.backgrounds.primary, borderColor: theme.borders.primary }]}> 
+                            <TouchableOpacity style={styles.itemMenuBtn} onPress={(e) => { e.stopPropagation(); handleOpenRename(conversation.id, conversation.title); }}>
+                              <Text style={[styles.itemMenuText, { color: theme.text.primary }]}>Renommer</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.itemMenuBtn} onPress={(e) => handleDeleteConversation(conversation.id, e)}>
+                              <Text style={[styles.itemMenuText, { color: '#ef4444' }]}>Supprimer</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                    <View style={styles.conversationMeta}>
-                      <Text style={[styles.conversationAssistant, { color: theme.text.secondary }]} numberOfLines={1}>
-                        {conversation.assistantName}
-                      </Text>
-                      <Text style={[styles.conversationDate, { color: theme.text.secondary }]}>
-                        {formatConversationDate(conversation.updatedAt)}
-                      </Text>
-                    </View>
-                    {conversation.lastMessage && (
-                      <Text style={[styles.conversationPreview, { color: theme.text.secondary }]} numberOfLines={2}>
-                        {conversation.lastMessage}
-                      </Text>
-                    )}
+                    <Text style={[styles.conversationDateCompact, { color: theme.text.secondary }]}>
+                      {formatConversationDate(conversation.updatedAt)}
+                    </Text>
                   </TouchableOpacity>
                 ))
               )}
@@ -434,6 +512,33 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
         </View>
       </View>
 
+      {/* Modale renommer */}
+      <Modal visible={showRenameModal} transparent animationType="fade" onRequestClose={() => setShowRenameModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.renameModal, { backgroundColor: theme.backgrounds.secondary }]}> 
+            <Text style={[styles.renameTitle, { color: theme.text.primary }]}>Renommer la conversation</Text>
+            <View style={[styles.searchContainer, { backgroundColor: theme.backgrounds.primary, marginBottom: 12 }]}> 
+              <TextInput
+                style={[styles.searchInput, { color: theme.text.primary }]}
+                value={renameDraft}
+                onChangeText={setRenameDraft}
+                placeholder="Nouveau titre"
+                placeholderTextColor={theme.text.secondary}
+                autoFocus
+              />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              <TouchableOpacity style={[styles.modalBtn, { marginRight: 8 }]} onPress={() => setShowRenameModal(false)}>
+                <Text style={{ color: theme.text.secondary }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtn} onPress={handleConfirmRename}>
+                <Text style={{ color: theme.text.primary }}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal de profil */}
       <ProfileModal
         visible={showProfileModal}
@@ -451,7 +556,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 250,
     borderRightWidth: 0.5,
-    zIndex: 50,
+    zIndex: 60,
     paddingVertical: 16,
   },
   header: {
@@ -518,47 +623,59 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   conversationItem: {
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     borderBottomWidth: 0.5,
     borderRadius: 8,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   conversationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   conversationTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     flex: 1,
     marginRight: 8,
   },
-  deleteButton: {
+  moreButton: {
     padding: 4,
   },
-  deleteIcon: {
-    fontSize: 14,
-  },
-  conversationMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  conversationAssistant: {
-    fontSize: 12,
-    flex: 1,
-    marginRight: 8,
-  },
-  conversationDate: {
-    fontSize: 12,
-  },
-  conversationPreview: {
-    fontSize: 12,
+  moreIcon: {
+    fontSize: 20,
     lineHeight: 16,
+  },
+  itemMenu: {
+    position: 'absolute',
+    top: -6,
+    right: 0,
+    borderWidth: 0.5,
+    borderRadius: 8,
+    overflow: 'hidden',
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  conversationItemRaised: {
+    zIndex: 90,
+  },
+  itemMenuBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 140,
+  },
+  itemMenuText: {
+    fontSize: 13,
+  },
+  conversationDateCompact: {
+    fontSize: 11,
+    marginTop: 2,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -575,6 +692,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 20,
     fontStyle: 'italic',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  renameModal: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 14,
+    padding: 18,
+  },
+  renameTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  modalBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   assistantMenu: {
     marginHorizontal: 16,

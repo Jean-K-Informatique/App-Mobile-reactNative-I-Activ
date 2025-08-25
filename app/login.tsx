@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import app from '../services/firebaseConfig';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isDesktop = screenWidth > 768;
@@ -22,6 +23,33 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handleNetworkTest = async () => {
+    try {
+      setLoading(true);
+      const apiKey = (app as any)?.options?.apiKey;
+
+      // Test 1: simple reachability
+      const r1 = await fetch('https://www.google.com/generate_204');
+      const r1ok = r1.status;
+
+      // Test 2: Identity Toolkit avec credentials volontairement invalides
+      const r2 = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'x@x.com', password: 'x', returnSecureToken: true })
+      });
+      const text = await r2.text();
+      console.log('[NET TEST] status:', r2.status, 'ct:', r2.headers.get('content-type'));
+      console.log('[NET TEST] body snippet:', text.slice(0, 300));
+      Alert.alert('Test réseau', `google204=${r1ok}, identitytoolkit=${r2.status}`);
+    } catch (e: any) {
+      console.log('[NET TEST] error', e);
+      Alert.alert('Test réseau', `Erreur: ${e?.message || 'inconnue'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -34,7 +62,9 @@ export default function LoginScreen() {
       await signInWithEmailPassword(email, password);
       router.replace('/main');
     } catch (error: any) {
-      Alert.alert('Erreur de connexion', error.message);
+      const code = error?.code || 'unknown';
+      const msg = error?.message || 'Erreur inconnue';
+      Alert.alert('Erreur de connexion', `${code}: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -135,6 +165,15 @@ export default function LoginScreen() {
               disabled={loading}
             >
               <Text style={styles.googleButtonText}>Se connecter avec Google</Text>
+            </TouchableOpacity>
+
+            {/* Network Test Button */}
+            <TouchableOpacity 
+              style={[styles.googleButton, { marginTop: 12, backgroundColor: '#ddd' }]}
+              onPress={handleNetworkTest}
+              disabled={loading}
+            >
+              <Text style={[styles.googleButtonText, { color: '#000' }]}>Tester le réseau</Text>
             </TouchableOpacity>
 
             {/* Footer Links */}

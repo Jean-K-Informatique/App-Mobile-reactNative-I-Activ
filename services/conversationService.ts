@@ -17,6 +17,9 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 
+// Réduire la verbosité des logs en prod
+const VERBOSE_LOGS = false;
+
 export interface ConversationMessage {
   id: string;
   text: string;
@@ -53,7 +56,7 @@ export async function createConversation(
   }
 
   try {
-    console.log('🆕 Création nouvelle conversation:', { assistantName, isPrivate });
+    if (VERBOSE_LOGS) console.log('🆕 Création nouvelle conversation:', { assistantName, isPrivate });
     
     const conversationData: Omit<Conversation, 'id'> = {
       title: generateConversationTitle(firstMessage),
@@ -68,7 +71,7 @@ export async function createConversation(
     };
 
     const conversationRef = await addDoc(collection(db, 'conversations'), conversationData);
-    console.log('✅ Conversation créée:', conversationRef.id);
+    if (VERBOSE_LOGS) console.log('✅ Conversation créée:', conversationRef.id);
     
     return conversationRef.id;
   } catch (error) {
@@ -110,7 +113,7 @@ export async function saveMessage(
       lastMessage: isUser ? text.substring(0, 100) : text.substring(0, 100)
     });
 
-    console.log('💾 Message sauvegardé:', { conversationId, isUser, messageIndex });
+    if (VERBOSE_LOGS) console.log('💾 Message sauvegardé:', { conversationId, isUser, messageIndex });
   } catch (error) {
     console.error('❌ Erreur sauvegarde message:', error);
     throw error;
@@ -129,7 +132,7 @@ export async function getUserConversations(): Promise<Conversation[]> {
 
   try {
     // ❌ SIMPLIFIÉ : Un seul log au lieu de deux
-    console.log('📂 Récupération historique:', user.uid);
+    if (VERBOSE_LOGS) console.log('📂 Récupération historique:', user.uid);
     
     // ⚠️ REQUÊTE ULTRA-SIMPLIFIÉE - Sans orderBy en attendant l'index
     // Cette requête fonctionne sans index composite
@@ -150,7 +153,7 @@ export async function getUserConversations(): Promise<Conversation[]> {
       .filter(conv => !conv.isPrivate) // Exclure les conversations privées
       .sort((a, b) => b.updatedAt.toMillis() - a.updatedAt.toMillis()); // Trier par date côté client
 
-    console.log(`✅ ${conversations.length} conversations récupérées`);
+    if (VERBOSE_LOGS) console.log(`✅ ${conversations.length} conversations récupérées`);
     return conversations;
   } catch (error) {
     console.error('❌ Erreur récupération conversations:', error);
@@ -163,7 +166,7 @@ export async function getUserConversations(): Promise<Conversation[]> {
  */
 export async function getConversationMessages(conversationId: string): Promise<ConversationMessage[]> {
   try {
-    console.log('💬 Récupération messages pour conversation:', conversationId);
+    if (VERBOSE_LOGS) console.log('💬 Récupération messages pour conversation:', conversationId);
     
     const messagesQuery = query(
       collection(db, `conversations/${conversationId}/messages`),
@@ -177,7 +180,7 @@ export async function getConversationMessages(conversationId: string): Promise<C
       ...doc.data()
     } as ConversationMessage));
 
-    console.log(`📨 ${messages.length} messages récupérés`);
+    if (VERBOSE_LOGS) console.log(`📨 ${messages.length} messages récupérés`);
     return messages;
   } catch (error) {
     console.error('❌ Erreur récupération messages:', error);
@@ -190,7 +193,7 @@ export async function getConversationMessages(conversationId: string): Promise<C
  */
 export async function deleteConversation(conversationId: string): Promise<void> {
   try {
-    console.log('🗑️ Suppression conversation:', conversationId);
+    if (VERBOSE_LOGS) console.log('🗑️ Suppression conversation:', conversationId);
     
     // Supprimer tous les messages de la conversation
     const messagesQuery = query(collection(db, `conversations/${conversationId}/messages`));
@@ -209,7 +212,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
     // Exécuter toutes les suppressions en une seule transaction
     await batch.commit();
     
-    console.log('✅ Conversation supprimée:', conversationId);
+    if (VERBOSE_LOGS) console.log('✅ Conversation supprimée:', conversationId);
   } catch (error) {
     console.error('❌ Erreur suppression conversation:', error);
     throw error;
@@ -227,7 +230,7 @@ export async function updateConversationTitle(conversationId: string, newTitle: 
       updatedAt: Timestamp.now()
     });
     
-    console.log('✏️ Titre conversation mis à jour:', { conversationId, newTitle });
+    if (VERBOSE_LOGS) console.log('✏️ Titre conversation mis à jour:', { conversationId, newTitle });
   } catch (error) {
     console.error('❌ Erreur mise à jour titre:', error);
     throw error;
@@ -422,7 +425,7 @@ export async function updateConversationTimestamp(conversationId: string): Promi
     await updateDoc(conversationRef, {
       updatedAt: Timestamp.now()
     });
-    console.log('✅ Conversation remontée dans l\'historique:', conversationId);
+    if (VERBOSE_LOGS) console.log('✅ Conversation remontée dans l\'historique:', conversationId);
   } catch (error) {
     console.error('❌ Erreur mise à jour timestamp conversation:', error);
   }

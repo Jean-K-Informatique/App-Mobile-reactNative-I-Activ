@@ -69,7 +69,6 @@ export default function AssistantPickerModal({ visible, onClose, onSelect }: Ass
                       </Text>
                     ) : null}
                   </View>
-                  <Text style={[styles.badge, { color: theme.text.secondary }]}>{c.model || 'modèle'}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>

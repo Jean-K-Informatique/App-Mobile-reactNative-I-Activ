@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, getDocs, QueryDocumentSnapshot, DocumentData, getDoc, doc } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 
 export interface Chat {
@@ -25,7 +25,8 @@ export async function fetchUserChats(): Promise<Chat[]> {
   
   try {
     const uid = user.uid;
-    console.log('🔍 Récupération des chats pour l\'utilisateur:', uid);
+    const VERBOSE = false;
+    if (VERBOSE) console.log('🔍 Récupération des chats pour l\'utilisateur:', uid);
     
     // Référence à la collection "chats"
     const chatsRef = collection(db, 'chats');
@@ -44,12 +45,29 @@ export async function fetchUserChats(): Promise<Chat[]> {
       } as Chat;
     });
     
-    console.log(`✅ ${chatList.length} chats trouvés`);
-    
-    // Log simplifié pour chaque chat
-    chatList.forEach((chat, index) => {
-      console.log(`📋 Chat ${index + 1}: "${chat.name}" (${chat.model || 'modèle non spécifié'})`);
-    });
+    if (VERBOSE) {
+      console.log(`✅ ${chatList.length} chats trouvés`);
+      chatList.forEach((chat, index) => {
+        console.log(`📋 Chat ${index + 1}: "${chat.name}" (${chat.model || 'modèle non spécifié'})`);
+      });
+    }
+
+    // ✅ Ajouter le chat gratuit global si configuré et accessible publiquement
+    const FREE_CHAT_ID = process.env.EXPO_PUBLIC_FREE_CHAT_ID;
+    if (FREE_CHAT_ID && !chatList.some(c => c.id === FREE_CHAT_ID)) {
+      try {
+        const freeSnap = await getDoc(doc(db, 'chats', FREE_CHAT_ID));
+        if (freeSnap.exists()) {
+          const freeData = freeSnap.data() as DocumentData;
+          if (freeData?.isGlobalAccess === true) {
+            chatList.unshift({ id: freeSnap.id, ...(freeData as any) });
+            if (VERBOSE) console.log('✅ Free tier ajouté:', freeSnap.id);
+          }
+        }
+      } catch (e) {
+        if (VERBOSE) console.warn('⚠️ Free tier indisponible:', e);
+      }
+    }
     
     return chatList;
   } catch (error) {

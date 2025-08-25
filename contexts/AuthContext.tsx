@@ -127,8 +127,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithEmailPassword = async (email: string, password: string) => {
     try {
-      console.log('Connexion avec email:', email);
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedPassword = password.trim();
+      console.log('Connexion avec email:', normalizedEmail);
+      const userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, normalizedPassword);
       console.log('Connexion réussie ! UID:', userCredential.user.uid);
     } catch (error: any) {
       console.error('Erreur lors de la connexion:', error);
