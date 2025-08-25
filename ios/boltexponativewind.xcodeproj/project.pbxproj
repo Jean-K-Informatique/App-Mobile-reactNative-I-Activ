@@ -339,7 +339,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = boltexponativewind/boltexponativewind.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = N5K4X5284Q;
+				DEVELOPMENT_TEAM = 8H73W22NAP;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -377,7 +377,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = boltexponativewind/boltexponativewind.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = N5K4X5284Q;
+				DEVELOPMENT_TEAM = 8H73W22NAP;
 				INFOPLIST_FILE = boltexponativewind/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "App I-Activ";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -12,14 +12,27 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  Image
+  Image,
+  Linking
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchUserChats, type Chat } from '../services/chatService';
-import { sendMessageToOpenAIStreaming, type ChatMessage, type StreamingCallbacks } from '../services/openaiService';
+import { 
+  sendMessageToOpenAIStreamingResponses,
+  sendMessageToOpenAI,
+  DEFAULT_GPT5_MODEL,
+  type ChatMessage, 
+  type StreamingCallbacks,
+  type ReasoningEffort
+} from '../services/openaiService';
 import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon } from './icons/SvgIcons';
+import SyntaxHighlighter from 'react-native-syntax-highlighter';
+// @ts-ignore - styles import from react-syntax-highlighter
+import { atomOneDark } from 'react-syntax-highlighter/styles/hljs';
+// @ts-ignore - styles import from react-syntax-highlighter
+import { github } from 'react-syntax-highlighter/styles/hljs';
 import { 
   getOrCreateConversation, 
   createConversation, 
@@ -31,6 +44,7 @@ import {
   updateConversationTimestamp,
   type Conversation 
 } from '../services/conversationService';
+import { perplexitySearch, buildWebContextMarkdown, type PerplexitySearchResultItem } from '../services/perplexityService';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -40,6 +54,7 @@ interface Message {
   isUser: boolean;
   timestamp: string;
   streaming?: boolean;
+  ephemeral?: boolean; // messages d'état temporaires (non sauvegardés / non envoyés à OpenAI)
 }
 
 interface ChatInterfaceProps {
@@ -88,6 +103,107 @@ export default function ChatInterface({
   const updateTimeoutRef = useRef<number | null>(null);
 
   const [forceNewConversation, setForceNewConversation] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('low');
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSourcesByMessageId, setWebSourcesByMessageId] = useState<{[id: string]: PerplexitySearchResultItem[]}>({});
+  const reasoningTimerRef = useRef<number | null>(null);
+  const [reasoningSeconds, setReasoningSeconds] = useState(0);
+
+  // Contrôleur d'effet machine à écrire
+  const typewriterTimerRef = useRef<number | null>(null);
+  const typewriterQueueRef = useRef<string>('');
+
+  // Pré-formatage léger pour améliorer le rendu Markdown lorsque l'IA n'utilise pas les #/listes
+  const formatForMarkdown = useCallback((raw: string): string => {
+    // 1) Convertir HTML <pre><code> / <code> en Markdown pur pour éviter le rendu d'un composant natif 'code'
+    const decode = (s: string) => s
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    let text = raw
+      .replace(/<pre>\s*<code(?:\s+class=["']language-([^"']+)["'])?\s*>([\s\S]*?)<\/code>\s*<\/pre>/gi,
+        (_m, lang, code) => `\n\n\
+\`\`\`${(lang || '').trim()}\n${decode(code)}\n\`\`\``)
+      .replace(/<code>([\s\S]*?)<\/code>/gi, (_m, code) => `\`${decode(code)}\``);
+
+    const lines = text.split('\n');
+    const formatted: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      // Titre: ... => ## ...
+      const mTitle = line.match(/^\s*(Titre|Title)\s*[:\-]\s*(.+)$/i);
+      if (mTitle) {
+        formatted.push(`## ${mTitle[2]}`);
+        continue;
+      }
+      // Puces "• " => "- "
+      if (/^\s*•\s+/.test(line)) {
+        line = line.replace(/^\s*•\s+/, '- ');
+      }
+      // Listes numérotées "1)" => "1."
+      line = line.replace(/^(\s*\d+)\)\s+/, '$1. ');
+      formatted.push(line);
+    }
+    return formatted.join('\n');
+  }, []);
+
+  // Styles et règles Markdown améliorés (code blocks lisibles + scroll horizontal)
+  const codeFontFamily = useMemo(() => Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }), []);
+  const markdownRules = useMemo(() => ({
+    code_block: (node: any) => (
+      <ScrollView key={node?.key || `cb-${Math.random()}`} horizontal bounces={false} showsHorizontalScrollIndicator style={{ marginVertical: 8 }}>
+        <SyntaxHighlighter
+          language={(node?.info || 'text').trim()}
+          style={isDark ? atomOneDark : github}
+          highlighter="hljs"
+          customStyle={{
+            padding: 14,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: theme.borders.primary,
+            minWidth: '100%'
+          }}
+        >
+          {node.content}
+        </SyntaxHighlighter>
+      </ScrollView>
+    ),
+    fence: (node: any) => (
+      <ScrollView key={node?.key || `fn-${Math.random()}`} horizontal bounces={false} showsHorizontalScrollIndicator style={{ marginVertical: 8 }}>
+        <SyntaxHighlighter
+          language={(node?.info || 'text').trim()}
+          style={isDark ? atomOneDark : github}
+          highlighter="hljs"
+          customStyle={{
+            padding: 14,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: theme.borders.primary,
+            minWidth: '100%'
+          }}
+        >
+          {node.content}
+        </SyntaxHighlighter>
+      </ScrollView>
+    ),
+    code_inline: (node: any) => (
+      <Text
+        key={node?.key || `ci-${Math.random()}`}
+        style={{
+          backgroundColor: isDark ? '#0f1117' : '#f3f4f6',
+          color: isDark ? '#e5e7eb' : '#111827',
+          paddingHorizontal: 6,
+          paddingVertical: 3,
+          borderRadius: 6,
+          fontFamily: codeFontFamily || 'monospace',
+        }}
+      >
+        {node?.content}
+      </Text>
+    ),
+  }), [isDark, theme.borders.primary]);
 
   // Effet pour charger une conversation spécifique depuis Firestore
   useEffect(() => {
@@ -164,25 +280,32 @@ export default function ChatInterface({
 
   // Fonction optimisée pour l'accumulation de chunks avec batching
   const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
-    // Accumuler le texte dans la ref
-    streamingTextRef.current += newChunk;
-    
-    // Annuler le timeout précédent s'il existe
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
+    // Alimente une file et anime au fil de l'eau (machine à écrire)
+    typewriterQueueRef.current += newChunk;
+
+    const tick = () => {
+      // Vitesse adaptative (plus la file est longue, plus on écrit vite)
+      const queueLen = typewriterQueueRef.current.length;
+      const sliceSize = queueLen > 200 ? 12 : queueLen > 80 ? 8 : queueLen > 20 ? 4 : 2;
+      const slice = typewriterQueueRef.current.slice(0, sliceSize);
+      typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
+
+      streamingTextRef.current += slice;
+      setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
+
+      if (typewriterQueueRef.current.length === 0) {
+        // Arrêter le timer si plus rien à écrire
+        if (typewriterTimerRef.current) {
+          clearInterval(typewriterTimerRef.current);
+          typewriterTimerRef.current = null;
+        }
+      }
+    };
+
+    // Démarrer le timer si nécessaire
+    if (!typewriterTimerRef.current) {
+      typewriterTimerRef.current = setInterval(tick, 16); // ~60fps
     }
-    
-    // Programmer une mise à jour avec debouncing (mais pas trop longtemps pour garder la fluidité)
-    updateTimeoutRef.current = setTimeout(() => {
-      const accumulatedText = streamingTextRef.current;
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === messageId 
-            ? { ...msg, text: accumulatedText }
-            : msg
-        )
-      );
-    }, 50); // 50ms de debouncing pour éviter les updates trop fréquents
   }, []);
 
   // Fonction pour finaliser le streaming
@@ -191,6 +314,10 @@ export default function ChatInterface({
     if (updateTimeoutRef.current) {
       clearTimeout(updateTimeoutRef.current);
       updateTimeoutRef.current = null;
+    }
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
     }
     
     // Faire la mise à jour finale
@@ -204,6 +331,7 @@ export default function ChatInterface({
     
     // Réinitialiser la ref
     streamingTextRef.current = '';
+    typewriterQueueRef.current = '';
   }, []);
 
   // Fonction pour gérer les erreurs de streaming
@@ -232,6 +360,9 @@ export default function ChatInterface({
     return () => {
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
+      }
+      if (typewriterTimerRef.current) {
+        clearInterval(typewriterTimerRef.current);
       }
     };
   }, []);
@@ -532,7 +663,7 @@ export default function ChatInterface({
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim() || !currentChat || isAITyping) return;
+    if (!inputText.trim() || isAITyping) return;
 
     // Vérifier si on peut envoyer le message en mode privé
     if (!handleNewPrivateConversation()) {
@@ -551,7 +682,7 @@ export default function ChatInterface({
       setConversationStarted(true);
       
       // Ajouter le message de bienvenue de l'assistant s'il existe
-      if (currentChat.welcomeMessage && currentChat.welcomeMessage.trim()) {
+      if (currentChat?.welcomeMessage && currentChat.welcomeMessage.trim()) {
         const welcomeMessage: Message = {
           id: 'welcome',
           text: currentChat.welcomeMessage.trim(),
@@ -597,15 +728,67 @@ export default function ChatInterface({
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('🚀 Démarrage streaming optimisé avec modèle:', currentChat.model);
+      console.log('🚀 Démarrage streaming optimisé avec modèle:', currentChat?.model || DEFAULT_GPT5_MODEL);
       console.log('🕵️ Mode privé actif:', isPrivateMode);
+
+      // Optionnel: activer la recherche web si demandé ou si l'utilisateur a saisi /chercher
+      let webContext: string | null = null;
+      const isExplicitSearch = currentInput.trim().startsWith('/chercher ');
+      const willSearch = webSearchEnabled || isExplicitSearch;
+      if (willSearch) {
+        try {
+          console.log('🔎 Appel Perplexity (proxy) – enabled:', webSearchEnabled, 'explicit:', isExplicitSearch);
+          const query = isExplicitSearch ? currentInput.replace(/^\/chercher\s+/i, '') : currentInput;
+          const resp = await perplexitySearch(query, { web_search_options: { search_context_size: 'low' } });
+          console.log('🔎 Perplexity OK – sources:', (resp.search_results || []).length);
+          webContext = buildWebContextMarkdown(resp);
+          // Attacher les sources à ce message assistant en cours
+          setWebSourcesByMessageId(prev => ({ ...prev, [assistantMessageId]: resp.search_results || [] }));
+          console.log('🔎 Sources attachées au message:', assistantMessageId);
+        } catch (e: any) {
+          console.warn('⚠️ Recherche web impossible:', e?.message || e);
+          // Surface visuelle dans le message assistant si l'appel échoue
+          updateStreamingMessage(assistantMessageId, `\n\n> Recherche web indisponible: ${e?.message || 'erreur inconnue'}.\n`);
+        }
+      }
+
+      // Si raisonnement haut: afficher une animation éphémère avec timer
+      let reasoningMsgId: string | null = null;
+      if (reasoningEffort === 'high') {
+        reasoningMsgId = (Date.now() + 2).toString();
+        const ephemeral: Message = {
+          id: reasoningMsgId,
+          text: 'Réflexion en cours… • 0s',
+          isUser: false,
+          timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          streaming: true,
+          ephemeral: true,
+        };
+        setMessages(prev => [...prev, ephemeral]);
+        setReasoningSeconds(0);
+        if (reasoningTimerRef.current) clearInterval(reasoningTimerRef.current);
+        reasoningTimerRef.current = setInterval(() => {
+          setReasoningSeconds(prev => {
+            const next = prev + 1;
+            let label = 'Réflexion en cours…';
+            if (next >= 15) label = 'Préparation de votre réponse…';
+            else if (next >= 10) label = 'Analyse approfondie…';
+            else if (next >= 5) label = 'Analyse de votre demande…';
+            setMessages(m => m.map(msg => msg.id === reasoningMsgId ? { ...msg, text: `${label} • ${next}s` } : msg));
+            return next;
+          });
+        }, 1000) as unknown as number;
+      }
 
       // Construire l'historique des messages pour OpenAI
       const openAIMessages: ChatMessage[] = [
         // System prompt avec les vraies instructions de l'assistant
         {
           role: 'system',
-          content: currentChat.content || currentChat.instructions || 'Tu es un assistant IA utile.'
+          content: (
+            (currentChat?.content || currentChat?.instructions || 'Tu es un assistant IA utile.')
+            + (webContext ? ('\n\n' + webContext) : '')
+          )
         },
         // Historique des messages (sans les messages de streaming)
         ...messages
@@ -634,6 +817,12 @@ export default function ChatInterface({
           
           // Finaliser le message avec le texte complet
           finalizeStreamingMessage(assistantMessageId, fullResponse);
+          // Nettoyer l'animation de raisonnement si présente
+          if (reasoningTimerRef.current) {
+            clearInterval(reasoningTimerRef.current);
+            reasoningTimerRef.current = null;
+          }
+          setMessages(prev => prev.filter(m => !m.ephemeral));
           
           setIsAITyping(false);
           setStreamingMessageId(null);
@@ -652,6 +841,11 @@ export default function ChatInterface({
           
           // Gérer l'erreur avec notre fonction optimisée
           handleStreamingError(assistantMessageId, 'Désolé, une erreur est survenue. Veuillez réessayer.');
+          if (reasoningTimerRef.current) {
+            clearInterval(reasoningTimerRef.current);
+            reasoningTimerRef.current = null;
+          }
+          setMessages(prev => prev.filter(m => !m.ephemeral));
           
           setIsAITyping(false);
           setStreamingMessageId(null);
@@ -661,13 +855,33 @@ export default function ChatInterface({
         }
       };
 
-      // Démarrer le streaming optimisé avec AbortController
-      await sendMessageToOpenAIStreaming(
-        openAIMessages, 
-        streamingCallbacks,
-        currentChat.model || 'gpt-4.1-mini-2025-04-14',
-        abortControllerRef.current
-      );
+      // Si raisonnement élevé: certains environnements RN ne streament pas les deltas -> utiliser chat.completions non-stream (comme web)
+      if (reasoningEffort === 'high') {
+        console.log('🧠 Mode raisonnement élevé: chat.completions non-stream');
+        const final = await sendMessageToOpenAI(
+          openAIMessages,
+          (currentChat?.model || DEFAULT_GPT5_MODEL)
+        );
+        finalizeStreamingMessage(assistantMessageId, final || '');
+        if (reasoningTimerRef.current) { clearInterval(reasoningTimerRef.current); reasoningTimerRef.current = null; }
+        setMessages(prev => prev.filter(m => !m.ephemeral));
+        setIsAITyping(false);
+        setStreamingMessageId(null);
+        abortControllerRef.current = null;
+      } else {
+        // Démarrer le streaming avec AbortController
+        await sendMessageToOpenAIStreamingResponses(
+          openAIMessages,
+          streamingCallbacks,
+          (currentChat?.model || DEFAULT_GPT5_MODEL),
+          reasoningEffort,
+          abortControllerRef.current,
+          { maxOutputTokens: 1000 }
+        );
+      }
+
+      // Désactiver la recherche web après envoi si elle était activée par le bouton
+      if (webSearchEnabled) setWebSearchEnabled(false);
 
     } catch (error: any) {
       console.error('Erreur lors du streaming:', error);
@@ -724,12 +938,50 @@ export default function ChatInterface({
               body: {
                 color: theme.text.primary,
                 fontSize: 16,
-                lineHeight: 22,
+                lineHeight: 24,
+                letterSpacing: 0.1,
               },
               paragraph: {
                 marginTop: 0,
                 marginBottom: 8,
                 color: theme.text.primary,
+              },
+              heading1: {
+                fontSize: 24,
+                fontWeight: '700',
+                marginTop: 8,
+                marginBottom: 8,
+                color: theme.text.primary,
+              },
+              heading2: {
+                fontSize: 20,
+                fontWeight: '700',
+                marginTop: 8,
+                marginBottom: 6,
+                color: theme.text.primary,
+              },
+              heading3: {
+                fontSize: 18,
+                fontWeight: '600',
+                marginTop: 6,
+                marginBottom: 4,
+                color: theme.text.primary,
+              },
+              bullet_list: {
+                marginVertical: 6,
+              },
+              ordered_list: {
+                marginVertical: 6,
+              },
+              list_item: {
+                marginVertical: 2,
+              },
+              blockquote: {
+                borderLeftWidth: 3,
+                borderLeftColor: theme.borders.primary,
+                paddingLeft: 10,
+                marginVertical: 8,
+                opacity: 0.9,
               },
               strong: {
                 fontWeight: 'bold',
@@ -740,40 +992,55 @@ export default function ChatInterface({
                 color: theme.text.primary,
               },
               code_inline: {
-                backgroundColor: theme.backgrounds.secondary,
-                color: theme.text.primary,
-                paddingHorizontal: 4,
-                paddingVertical: 2,
-                borderRadius: 4,
-                fontFamily: 'monospace',
+                backgroundColor: isDark ? '#0f1117' : '#f3f4f6',
+                color: isDark ? '#e5e7eb' : '#111827',
+                paddingHorizontal: 6,
+                paddingVertical: 3,
+                borderRadius: 6,
+                fontFamily: codeFontFamily || 'monospace',
               },
               code_block: {
-                backgroundColor: theme.backgrounds.secondary,
-                color: theme.text.primary,
-                padding: 12,
-                borderRadius: 8,
-                fontFamily: 'monospace',
+                backgroundColor: isDark ? '#0f1117' : '#f3f4f6',
+                color: isDark ? '#e5e7eb' : '#111827',
+                padding: 14,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: theme.borders.primary,
+                fontFamily: codeFontFamily || 'monospace',
+                overflow: 'hidden',
               },
-            }}>
-              {item.text + (item.streaming ? ' ▊' : '')}
+              link: {
+                color: '#60a5fa',
+                textDecorationLine: 'underline',
+              }
+            }} rules={markdownRules}>
+              {formatForMarkdown(item.text) + (item.streaming ? ' ▊' : '')}
             </Markdown>
           </View>
         )}
 
       </View>
       
-      {/* Bouton copier discret pour les messages de l'assistant */}
-      {!item.isUser && !item.streaming && (
-        <View style={styles.messageActions}>
-          <TouchableOpacity 
-            style={styles.copyButtonSmall}
-            onPress={() => {
-              // TODO: Implémenter la copie
-              Alert.alert('Copié !', 'Le message a été copié dans le presse-papiers');
-            }}
-          >
-            <Text style={styles.copyIconSmall}>📄</Text>
-          </TouchableOpacity>
+      {/* Sources Perplexity: afficher les URL cliquables */}
+      {!item.isUser && !item.streaming && webSourcesByMessageId[item.id] && webSourcesByMessageId[item.id].length > 0 && (
+        <View style={styles.sourcesList}>
+          <Text style={[styles.sourcesTitle, { color: theme.text.secondary }]}>Sources</Text>
+          {webSourcesByMessageId[item.id].slice(0, 8).map((s, idx) => (
+            <TouchableOpacity
+              key={`${item.id}-src-${idx}`}
+              style={styles.sourceRow}
+              onPress={() => s.url && Linking.openURL(s.url)}
+            >
+              <Text style={styles.sourceIndex}>[{idx + 1}] </Text>
+              <Text
+                style={styles.sourceLink}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {s.url || s.title || 'Lien'}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
       
@@ -856,18 +1123,43 @@ export default function ChatInterface({
       ]}>
         {/* Toolbar avec bouton + et outils cachés */}
         {showToolbar && (
-          <View style={styles.toolbar}>
-            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-              <TromboneIcon size={18} />
+          <View style={[styles.sheet, { backgroundColor: theme.backgrounds.tertiary, borderColor: theme.borders.primary }]}>
+            <Text style={[styles.sheetTitle, { color: theme.text.primary }]}>Outils</Text>
+            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+              onPress={() => { Alert.alert('Document', 'Sélection de document à venir'); setShowToolbar(false); }}
+            >
+              <Text style={styles.sheetIcon}>📄</Text>
+              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter document</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
+
+            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+              onPress={() => { Alert.alert('Image', 'Sélection d\'image à venir'); setShowToolbar(false); }}
+            >
               <ImageIcon size={18} />
+              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter photo</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-              <Text style={{ color: theme.text.primary, fontSize: 16 }}>📄</Text>
+
+            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+              onPress={() => { setWebSearchEnabled(prev => !prev); setShowToolbar(false); }}
+            >
+              <Text style={styles.sheetIcon}>🔎</Text>
+              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Recherche web: {webSearchEnabled ? 'activée' : 'désactivée'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.toolButton, { backgroundColor: theme.backgrounds.primary }]}>
-              <ToolsIcon size={18} />
+
+            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary }]}
+              onPress={() => { setReasoningEffort(prev => prev === 'low' ? 'high' : 'low'); setShowToolbar(false); }}
+            >
+              <Text style={styles.sheetIcon}>🧠</Text>
+              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Raisonnement: {reasoningEffort === 'high' ? 'élevé' : 'bas'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.sheetItemFull, { backgroundColor: theme.backgrounds.primary, justifyContent: 'space-between' }]}
+              onPress={() => { togglePrivateMode(); setShowToolbar(false); }}
+            >
+              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Conversation privée</Text>
+              <View style={[styles.switchBase, { borderColor: theme.borders.primary, backgroundColor: isPrivateMode ? (isDark ? '#4A5568' : '#E2E8F0') : 'transparent' }]}> 
+                <View style={[styles.switchKnob, { alignSelf: isPrivateMode ? 'flex-end' : 'flex-start' }]} />
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -892,6 +1184,17 @@ export default function ChatInterface({
             </Text>
           </TouchableOpacity>
 
+          {/* Indicateurs d'options actives */}
+          {webSearchEnabled && (
+            <View style={styles.activeTag}><Text style={styles.activeTagText}>🔎</Text></View>
+          )}
+          {reasoningEffort === 'high' && (
+            <View style={styles.activeTag}><Text style={styles.activeTagText}>🧠</Text></View>
+          )}
+          {isPrivateMode && (
+            <View style={styles.activeTag}><Text style={styles.activeTagText}>🕵️</Text></View>
+          )}
+
           <TextInput
             ref={textInputRef}
             style={[
@@ -911,30 +1214,7 @@ export default function ChatInterface({
             onSubmitEditing={sendMessage}
             blurOnSubmit={false}
           />
-          
-          {/* Bouton Mode Navigation Privée */}
-          <TouchableOpacity
-            style={[
-              styles.privateModeButton,
-              {
-                backgroundColor: isPrivateMode 
-                  ? (isDark ? '#4A5568' : '#E2E8F0')
-                  : 'transparent'
-              }
-            ]}
-            onPress={togglePrivateMode}
-          >
-            <Text style={[
-              styles.privateModeIcon,
-              { 
-                color: isPrivateMode 
-                  ? (isDark ? '#F7FAFC' : '#1A202C')
-                  : theme.text.secondary 
-              }
-            ]}>
-              🕵️
-            </Text>
-          </TouchableOpacity>
+          {/* Boutons cerveau/incognito déplacés dans le sheet */}
           
           {/* Bouton Send/Stop intelligent */}
           <TouchableOpacity
@@ -1032,7 +1312,7 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginVertical: 4,
-    maxWidth: '85%',
+    maxWidth: '96%',
   },
   userMessageContainer: {
     alignSelf: 'flex-end',
@@ -1042,13 +1322,14 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     borderRadius: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
   },
   userMessageBubble: {
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+    maxWidth: '78%',
   },
   assistantMessageBubble: {
     borderRadius: 16,
@@ -1079,6 +1360,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 12,
+  },
+  sheet: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    zIndex: 5,
+  },
+  sheetTitle: {
+    fontSize: 12,
+    opacity: 0.7,
+    marginBottom: 6,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sheetItem: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sheetItemFull: {
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  sheetIcon: {
+    fontSize: 16,
+  },
+  sheetLabel: {
+    fontSize: 14,
+  },
+  switchBase: {
+    width: 42,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  switchKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#9CA3AF',
   },
   toolButton: {
     width: 38,
@@ -1153,6 +1493,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#ffffff',
   },
+  sourceChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginRight: 6,
+  },
+  sourceChipText: {
+    color: '#ffffff',
+    fontSize: 12,
+  },
+  sourcesList: {
+    marginTop: 6,
+    paddingRight: 8,
+  },
+  sourcesTitle: {
+    fontSize: 10,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    opacity: 0.7,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sourceIndex: {
+    color: '#9CA3AF',
+    fontSize: 12,
+  },
+  sourceLink: {
+    color: '#60a5fa',
+    fontSize: 12,
+    textDecorationLine: 'underline',
+    flexShrink: 1,
+  },
   disclaimerTextSmall: {
     fontSize: 10,
     textAlign: 'center',
@@ -1172,5 +1548,19 @@ const styles = StyleSheet.create({
   plusButtonText: {
     fontSize: 20,
     fontWeight: '300',
+  },
+  activeTag: {
+    height: 24,
+    minWidth: 24,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  activeTagText: {
+    color: '#ffffff',
+    fontSize: 12,
   },
 }); 

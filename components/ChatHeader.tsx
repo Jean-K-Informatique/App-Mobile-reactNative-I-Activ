@@ -8,6 +8,7 @@ interface ChatHeaderProps {
   currentAssistant: string;
   onNewChat: () => void; // Renommé de onReset à onNewChat
   onToggleSidebar: () => void;
+  onOpenAssistantPicker?: () => void;
 }
 
 // Icône Plus pour nouveau chat
@@ -67,7 +68,7 @@ function SaveIcon({ size = 20, color }: { size?: number; color?: string }) {
   );
 }
 
-export default function ChatHeader({ currentAssistant, onNewChat, onToggleSidebar }: ChatHeaderProps) {
+export default function ChatHeader({ currentAssistant, onNewChat, onToggleSidebar, onOpenAssistantPicker }: ChatHeaderProps) {
   const { theme } = useTheme();
 
   return (
@@ -80,15 +81,22 @@ export default function ChatHeader({ currentAssistant, onNewChat, onToggleSideba
         <NavbarIcon size={20} />
       </TouchableOpacity>
 
-      {/* Nom de l'assistant */}
-      <View style={styles.assistantInfo}>
+      {/* Nom de l'assistant (cliquable pour picker) */}
+      <TouchableOpacity style={styles.assistantInfo} onPress={onOpenAssistantPicker}>
         <Text style={[styles.assistantName, { color: theme.text.primary }]}>
           {currentAssistant}
         </Text>
-      </View>
+      </TouchableOpacity>
 
       {/* Boutons d'action */}
       <View style={styles.actions}>
+        {/* Ouvrir sélection d'assistant */}
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
+          onPress={onOpenAssistantPicker}
+        >
+          <Text style={styles.actionIcon}>🔍</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
           onPress={onNewChat}

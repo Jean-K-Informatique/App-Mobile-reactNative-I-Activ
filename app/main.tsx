@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import Sidebar from '../components/Sidebar';
 import ChatInterface from '../components/ChatInterface';
 import ChatHeader from '../components/ChatHeader';
+import AssistantPickerModal from '../components/ui/AssistantPickerModal';
+import type { Chat } from '../services/chatService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -14,6 +16,7 @@ export default function MainScreen() {
   const { isAuthenticated, loading } = useAuth();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
+  const [assistantPickerVisible, setAssistantPickerVisible] = useState(false);
   const [loadConversationId, setLoadConversationId] = useState<string | null>(null);
   
   // Ref pour pouvoir déclencher le reset depuis le header
@@ -73,6 +76,7 @@ export default function MainScreen() {
             currentAssistant={currentAssistant}
             onNewChat={handleNewChat}
             onToggleSidebar={handleToggleSidebar}
+            onOpenAssistantPicker={() => setAssistantPickerVisible(true)}
           />
           
           {/* Interface de chat */}
@@ -82,6 +86,20 @@ export default function MainScreen() {
             loadConversationId={loadConversationId}
             onConversationLoaded={() => setLoadConversationId(null)}
             onNewConversationCreated={handleNewConversationCreated}
+          />
+
+          {/* Modale de sélection d'assistant (respect des accès via fetchUserChats) */}
+          <AssistantPickerModal
+            visible={assistantPickerVisible}
+            onClose={() => setAssistantPickerVisible(false)}
+            onSelect={(chat: Chat) => {
+              setAssistantPickerVisible(false);
+              setCurrentAssistant(chat.name);
+              // Reset conversation pour le nouvel assistant
+              if (resetChatRef.current) {
+                resetChatRef.current(true);
+              }
+            }}
           />
         </View>
 

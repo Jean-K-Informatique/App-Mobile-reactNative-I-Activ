@@ -1,26 +1,3 @@
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  avatar?: string;
-}
-
-export interface Chat {
-  id: string;
-  title: string;
-  lastMessage: string;
-  timestamp: string;
-}
-
-export interface Message {
-  id: string;
-  text: string;
-  isUser: boolean;
-  timestamp: string;
-}
-
-// Types génériques d'appoint
 declare module 'react-native-syntax-highlighter' {
   import * as React from 'react';
   export interface SyntaxHighlighterProps {
@@ -33,3 +10,9 @@ declare module 'react-native-syntax-highlighter' {
   const SyntaxHighlighter: React.ComponentType<SyntaxHighlighterProps>;
   export default SyntaxHighlighter;
 }
+
+declare module 'react-syntax-highlighter/styles/hljs' {
+  export const atomOneDark: any;
+  export const github: any;
+}
+
