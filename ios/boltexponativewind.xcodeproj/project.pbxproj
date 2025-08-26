@@ -347,6 +347,7 @@
 				);
 				INFOPLIST_FILE = boltexponativewind/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "App I-Activ";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -380,6 +381,7 @@
 				DEVELOPMENT_TEAM = 8H73W22NAP;
 				INFOPLIST_FILE = boltexponativewind/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "App I-Activ";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

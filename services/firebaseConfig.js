@@ -1,7 +1,7 @@
 // Configuration Firebase pour React Native
 import { initializeApp } from 'firebase/app';
 import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuration Firebase avec vos vraies valeurs
@@ -21,6 +21,14 @@ const app = initializeApp(firebaseConfig);
 export const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage)
 });
+
+// Activer long-polling pour iOS simulateur afin d'éviter les erreurs de transport
+try {
+  initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    useFetchStreams: false,
+  });
+} catch {}
 
 export const db = getFirestore(app);
 export default app; 
