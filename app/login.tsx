@@ -10,18 +10,21 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { DebugPanel } from '../components/ui/DebugPanel';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isDesktop = screenWidth > 768;
 
-export default function LoginScreen() {
+function LoginScreen() {
   const { signInWithEmailPassword, signInWithGoogle, signInWithTestAccount } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -149,12 +152,40 @@ export default function LoginScreen() {
               <TouchableOpacity onPress={() => router.push('/account')}>
                 <Text style={styles.linkText}>Pas de compte ? Créer un compte</Text>
               </TouchableOpacity>
-            </View>
 
+              {/* Bouton Debug */}
+              <TouchableOpacity 
+                style={styles.debugButton}
+                onPress={() => setShowDebug(true)}
+              >
+                <Text style={styles.debugButtonText}>🔧 Diagnostic Connexion</Text>
+              </TouchableOpacity>
+            </View>
 
           </View>
         </View>
       </View>
+
+      {/* Modal Debug */}
+      <Modal
+        visible={showDebug}
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setShowDebug(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Diagnostic Connexion</Text>
+            <TouchableOpacity 
+              onPress={() => setShowDebug(false)}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <DebugPanel />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -282,4 +313,50 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontWeight: '600',
   },
-}); 
+  debugButton: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 16,
+  },
+  debugButtonText: {
+    fontSize: 12,
+    color: '#000000',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'white',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  closeButton: {
+    backgroundColor: '#ef4444',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+});
+
+export default LoginScreen; 

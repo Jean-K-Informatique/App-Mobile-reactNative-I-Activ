@@ -6,6 +6,11 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
+    "schemes": [
+      "myapp",
+      "com.jeankiactiv.boltexponativewind",
+      "com.googleusercontent.apps.741599469385-2mvps552mdbu0fjimvim0qvti0jfrh5o"
+    ],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "ios": {

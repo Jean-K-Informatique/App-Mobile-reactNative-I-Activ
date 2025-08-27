@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { User, GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
 import { router } from 'expo-router';
 import { auth } from '../services/firebaseConfig';
 
@@ -29,11 +30,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Configuration Google OAuth (compatible Expo Go et Dev Client)
   const isExpoGo = Constants.appOwnership === 'expo';
 
+  // DÉBOGAGE : Vérifier le contexte d'exécution
+  console.log('[AuthContext] Context Expo:', { 
+    isExpoGo, 
+    appOwnership: Constants.appOwnership,
+    platform: Constants.platform 
+  });
+
+  // SOLUTION iOS : Utiliser le schéma bundle ID pour Google OAuth
+  const redirectUri = makeRedirectUri({
+    useProxy: false, // Pas de proxy pour build native
+    scheme: 'com.jeankiactiv.boltexponativewind', // Bundle ID exact pour Google
+  });
+
+  // Log de débogage pour vérifier l'URI de redirection
+  console.log('[AuthContext] Redirect URI généré:', redirectUri);
+
   const [request, response, promptAsync] = Google.useAuthRequest({
-    // Garder le clientId générique pour le web/Expo si configuré dans Google
+    // Client IDs pour toutes les plateformes (REQUIS pour stabilité)
     clientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
-    // Utiliser l'identifiant iOS dédié (installé) pour les builds natives/dev-client
     iosClientId: '741599469385-2mvps552mdbu0fjimvim0qvti0jfrh5o.apps.googleusercontent.com',
+    // TODO: Ajouter androidClientId une fois créé dans Google Cloud Console
+    // androidClientId: 'VOTRE_ANDROID_CLIENT_ID.googleusercontent.com',
+    
+    // CORRECTION CRITIQUE : URI de redirection explicite
+    redirectUri,
+  });
+
+  // DÉBOGAGE : Vérifier l'état du hook Google
+  console.log('[AuthContext] Google Auth Hook:', { 
+    hasRequest: !!request, 
+    hasPromptAsync: !!promptAsync,
+    requestLoaded: request?.state 
   });
 
   // UN SEUL LISTENER GLOBAL pour toute l'application (stabilisé)
@@ -107,12 +135,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      console.log('Démarrage connexion Google...');
-      if (isGoogleSigningInRef.current) return;
+      console.log('[AuthContext] Démarrage connexion Google...');
+      console.log('[AuthContext] État du hook:', { 
+        hasRequest: !!request, 
+        hasPromptAsync: !!promptAsync,
+        isGoogleSigning: isGoogleSigningInRef.current 
+      });
+      
+      if (isGoogleSigningInRef.current) {
+        console.log('[AuthContext] Connexion déjà en cours, abandon');
+        return;
+      }
+      
+      if (!promptAsync) {
+        console.error('[AuthContext] promptAsync non disponible!');
+        return;
+      }
+      
       isGoogleSigningInRef.current = true;
+      console.log('[AuthContext] Appel de promptAsync...');
       await promptAsync();
     } catch (error) {
-      console.error('Erreur lors du démarrage de l\'auth Google:', error);
+      console.error('[AuthContext] Erreur lors du démarrage de l\'auth Google:', error);
       isGoogleSigningInRef.current = false;
     }
   };
