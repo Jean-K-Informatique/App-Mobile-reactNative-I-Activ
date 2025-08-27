@@ -290,13 +290,19 @@ export async function sendMessageToOpenAINonStreamingResponses(
     input: messages.map((m) => ({
       role: m.role,
       content: [
-        { type: (m.role === 'assistant' ? 'output_text' : 'input_text'), text: m.content }
+        { type: 'input_text', text: m.content }
       ]
     })),
-    max_output_tokens: options?.maxOutputTokens ?? 2048,
+    max_output_tokens: options?.maxOutputTokens ?? 1024,
     reasoning: { effort: reasoningEffort },
     stream: false,
+    // Forcer une sortie textuelle claire côté Responses API
+    text: { format: { type: 'text' } },
   };
+  // Sécurité: supprimer tout vestige éventuel de response_format
+  if ((payload as any).response_format) delete (payload as any).response_format;
+  // Debug minimal (pas de contenu), uniquement les clés top-level
+  try { console.log('🧠 Payload non-stream keys:', Object.keys(payload)); } catch {}
   if (typeof options?.temperature === 'number') payload.temperature = options.temperature;
 
   console.log('🧠 Non-stream Responses API:', { model, reasoningEffort, messagesCount: messages.length });
@@ -306,6 +312,9 @@ export async function sendMessageToOpenAINonStreamingResponses(
       'Authorization': `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      // Aligner avec le mode streaming: passer ORG/PROJECT si présents
+      ...(process.env.EXPO_PUBLIC_OPENAI_ORG ? { 'OpenAI-Organization': process.env.EXPO_PUBLIC_OPENAI_ORG } : {}),
+      ...(process.env.EXPO_PUBLIC_OPENAI_PROJECT ? { 'OpenAI-Project': process.env.EXPO_PUBLIC_OPENAI_PROJECT } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -319,10 +328,21 @@ export async function sendMessageToOpenAINonStreamingResponses(
   let json: any = null;
   try { json = JSON.parse(text); } catch {}
 
-  // Extraction robuste et priorisée (évite de prendre l'id resp_*)
+  // Extraction robuste et priorisée (évite de prendre l'id resp_* ou des statuts)
   const deepExtract = (obj: any): string | null => {
     if (!obj) return null;
-    const prefer = (s: any) => (typeof s === 'string' && /[a-zA-Z]{3,}\s+[a-zA-Z]{3,}/.test(s)) ? s : null; // doit contenir au moins un espace (phrase)
+    const isStatusLike = (s: string) => /^(incomplete|complete|completed|success|succeeded|failed|error|running|queued|pending|processing|thinking|thought|finalizing|ok|done|idle)$/i.test(s.trim());
+    const likelyText = (s: string) => {
+      const t = s.trim();
+      if (!t) return false;
+      if (isStatusLike(t)) return false;
+      if (/^resp_[a-z0-9]/i.test(t)) return false;
+      // Favoriser des textes avec espaces ou ponctuation, et une longueur minimale
+      if (t.length >= 24) return true;
+      if (/[.!?]\s|\s/.test(t) && t.length >= 16) return true;
+      return false;
+    };
+    const prefer = (s: any) => (typeof s === 'string' && likelyText(s)) ? s : null;
 
     // 1) Formats prioritaires connus
     if (typeof obj?.output_text === 'string' && obj.output_text.trim()) return obj.output_text;
@@ -348,7 +368,7 @@ export async function sendMessageToOpenAINonStreamingResponses(
       }
     } else if (typeof obj === 'object') {
       const keys = Object.keys(obj);
-      const ignore = new Set(['id','object','model','created','created_at','usage']);
+      const ignore = new Set(['id','object','model','created','created_at','usage','status','type','event','finish_reason','reason','severity','state','error']);
       for (const key of keys) {
         if (ignore.has(key)) continue;
         const got = deepExtract(obj[key]);
@@ -358,7 +378,7 @@ export async function sendMessageToOpenAINonStreamingResponses(
       for (const key of keys) {
         if (ignore.has(key)) continue;
         const val = obj[key];
-        if (typeof val === 'string' && val.trim() && !/^resp_[a-z0-9]/i.test(val)) return val;
+        if (typeof val === 'string' && likelyText(val)) return val;
       }
     } else if (typeof obj === 'string') {
       if (prefer(obj)) return obj;
@@ -372,7 +392,44 @@ export async function sendMessageToOpenAINonStreamingResponses(
     return extracted;
   }
 
+  // Fallback si la réponse est incomplète (souvent à cause de max_output_tokens avant le texte final)
+  try {
+    const status = (json as any)?.status;
+    const reason = (json as any)?.incomplete_details?.reason;
+    if (status === 'incomplete' || reason === 'max_output_tokens') {
+      console.warn('🧠 Non-stream: statut incomplet, tentative fallback streaming (Responses API)…');
+      let aggregated = '';
+      await sendMessageToOpenAIStreamingResponses(
+        messages,
+        {
+          onChunk: (c) => { aggregated += c; },
+          onComplete: () => {},
+          onError: () => {},
+        },
+        model,
+        reasoningEffort,
+        undefined,
+        { maxOutputTokens: Math.min(1024, options?.maxOutputTokens ?? 1000) }
+      );
+      if (aggregated && aggregated.trim()) {
+        console.log('🧠 Fallback streaming OK:', aggregated.length, 'caractères');
+        return aggregated;
+      }
+    }
+  } catch (e) {
+    console.warn('🧠 Fallback streaming échoué:', (e as any)?.message || e);
+  }
+
   console.warn('🧠 Non-stream: impossible d\'extraire du texte. JSON:', text.slice(0, 500));
+  // Dernier repli: utiliser l'API Chat Completions non-stream avec un modèle fiable texte
+  try {
+    const fallbackModel = /gpt-5/i.test(model) ? 'gpt-4o-mini' : model;
+    console.warn('🧠 Fallback final via Chat Completions (modèle):', fallbackModel);
+    const completion = await sendMessageToOpenAI(messages, fallbackModel);
+    return completion || '';
+  } catch (e) {
+    console.warn('🧠 Fallback Chat Completions échoué:', (e as any)?.message || e);
+  }
   return '';
 }
 // NOUVEAU: Streaming via Responses API (GPT-5, reasoning effort)
@@ -482,12 +539,13 @@ export async function sendMessageToOpenAIStreamingResponses(
       input: messages.map((m) => ({
         role: m.role,
         content: [
-          { type: (m.role === 'assistant' ? 'output_text' : 'input_text'), text: m.content }
+          { type: 'input_text', text: m.content }
         ]
       })),
       max_output_tokens: options?.maxOutputTokens ?? 1000,
       reasoning: { effort: reasoningEffort },
       stream: true,
+      text: { format: { type: 'text' } },
     };
 
     // N'inclure temperature que si explicitement fourni (certains modèles ne le supportent pas)

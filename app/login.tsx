@@ -5,13 +5,13 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Image,
   Dimensions,
   Alert,
   ActivityIndicator,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { DebugPanel } from '../components/ui/DebugPanel';
@@ -69,7 +69,7 @@ function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','bottom']} style={styles.container}>
       <View style={[styles.content, { flexDirection: isDesktop ? 'row' : 'column' }]}>
         {/* Logo Section */}
         <View style={[styles.logoSection, { flex: isDesktop ? 1 : 0 }]}>

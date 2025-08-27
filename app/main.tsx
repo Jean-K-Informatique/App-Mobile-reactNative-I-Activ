@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, SafeAreaView } from 'react-native';
+import { View, StyleSheet, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,7 +68,7 @@ export default function MainScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
+    <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
       <View style={styles.content}>
         {/* Interface principale */}
         <View style={styles.mainContent}>

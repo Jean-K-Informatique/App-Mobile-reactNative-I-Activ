@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MessageCircle, User } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchUserChats, type Chat } from '../../services/chatService';
@@ -106,7 +107,7 @@ export default function HomeScreen() {
 
   if (!isAuthenticated) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top','bottom']} style={styles.container}>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color="#007AFF" />
           <Text style={styles.loadingText}>Vérification de l'authentification...</Text>
@@ -116,7 +117,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top','bottom']} style={styles.container}>
       <View style={styles.header}>
         <View style={styles.userInfo}>
           <User size={24} color="#007AFF" />

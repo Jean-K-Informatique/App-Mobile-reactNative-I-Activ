@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -23,7 +24,7 @@ export default function HomeScreen() {
 
   // Écran de chargement pendant la vérification de l'auth
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
+    <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
       <View style={styles.content}>
         <ActivityIndicator size="large" color="#007AFF" />
         <Text style={[styles.loadingText, { color: theme.text.secondary }]}>

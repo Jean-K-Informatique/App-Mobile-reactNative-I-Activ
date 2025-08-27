@@ -104,6 +104,8 @@ export default function ChatInterface({
 
   const [forceNewConversation, setForceNewConversation] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('low');
+  // Désactivation visuelle et fonctionnelle du raisonnement
+  const reasoningDisabled = true;
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [webSourcesByMessageId, setWebSourcesByMessageId] = useState<{[id: string]: PerplexitySearchResultItem[]}>({});
   const reasoningTimerRef = useRef<number | null>(null);
@@ -783,7 +785,7 @@ export default function ChatInterface({
 
       // Si raisonnement haut: afficher une animation éphémère avec timer
       let reasoningMsgId: string | null = null;
-      if (reasoningEffort === 'high') {
+      if (reasoningEffort === 'high' && !reasoningDisabled) {
         reasoningMsgId = (Date.now() + 2).toString();
         const ephemeral: Message = {
           id: reasoningMsgId,
@@ -885,7 +887,7 @@ export default function ChatInterface({
       };
 
       // Si raisonnement élevé: certains environnements RN ne streament pas les deltas -> utiliser chat.completions non-stream (comme web)
-      if (reasoningEffort === 'high') {
+      if (reasoningEffort === 'high' && !reasoningDisabled) {
         console.log('🧠 Mode raisonnement élevé: Responses non-stream');
         // Renforcer le message système pour forcer une sortie textuelle
         openAIMessages[0] = {
@@ -914,7 +916,7 @@ export default function ChatInterface({
           openAIMessages,
           streamingCallbacks,
           (currentChat?.model || DEFAULT_GPT5_MODEL),
-          reasoningEffort,
+          reasoningDisabled ? 'low' : reasoningEffort,
           abortControllerRef.current,
           { maxOutputTokens: 1000 }
         );
@@ -1212,25 +1214,21 @@ export default function ChatInterface({
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Recherche web: {webSearchEnabled ? 'activée' : 'désactivée'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[
-                styles.sheetItemFull,
-                { backgroundColor: theme.backgrounds.primary },
-                pressedItem === 'brain' && styles.sheetItemPressed
-              ]}
-              onPressIn={() => setPressedItem('brain')}
-              onPressOut={() => setPressedItem(null)}
-              onPress={() => {
-                setReasoningEffort(prev => {
-                  const next = prev === 'low' ? 'high' : 'low';
-                  if (next === 'high') setWebSearchEnabled(false); // exclusivité: activer raisonnement => désactiver web
-                  return next;
-                });
-                setShowToolbar(false);
-              }}
-            >
-              <Text style={styles.sheetIcon}>🧠</Text>
-              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Raisonnement: {reasoningEffort === 'high' ? 'élevé' : 'bas'}</Text>
-            </TouchableOpacity>
+            {/* Raisonnement désactivé visuellement */}
+            {false && (
+              <TouchableOpacity style={[
+                  styles.sheetItemFull,
+                  { backgroundColor: theme.backgrounds.primary },
+                  pressedItem === 'brain' && styles.sheetItemPressed
+                ]}
+                onPressIn={() => setPressedItem('brain')}
+                onPressOut={() => setPressedItem(null)}
+                onPress={() => {}}
+              >
+                <Text style={styles.sheetIcon}>🧠</Text>
+                <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Raisonnement: désactivé</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={[
                 styles.sheetItemFull,
@@ -1250,12 +1248,12 @@ export default function ChatInterface({
         )}
 
         {/* Barre d'état des options actives (au-dessus du champ) */}
-        {(webSearchEnabled || reasoningEffort === 'high' || isPrivateMode) && (
+        {(webSearchEnabled || (!reasoningDisabled && reasoningEffort === 'high') || isPrivateMode) && (
           <View style={styles.activeBar}>
             {webSearchEnabled && (
               <View style={styles.activePill}><Text style={styles.activePillText}>Rechercher</Text></View>
             )}
-            {reasoningEffort === 'high' && (
+            {!reasoningDisabled && reasoningEffort === 'high' && (
               <View style={styles.activePill}><Text style={styles.activePillText}>Raisonnement</Text></View>
             )}
             {isPrivateMode && (

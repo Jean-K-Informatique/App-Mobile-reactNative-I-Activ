@@ -50,8 +50,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Client IDs pour toutes les plateformes (REQUIS pour stabilité)
     clientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
     iosClientId: '741599469385-2mvps552mdbu0fjimvim0qvti0jfrh5o.apps.googleusercontent.com',
-    // TODO: Ajouter androidClientId une fois créé dans Google Cloud Console
-    // androidClientId: 'VOTRE_ANDROID_CLIENT_ID.googleusercontent.com',
+    // ANDROID: Utilisons temporairement le clientId web pour tester Expo Go
+    androidClientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
     
     // CORRECTION CRITIQUE : URI de redirection explicite
     redirectUri,
