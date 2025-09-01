@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import { DebugPanel } from '../components/ui/DebugPanel';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isDesktop = screenWidth > 768;
@@ -24,7 +23,7 @@ function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
+  const [showDebug, setShowDebug] = useState(false); // legacy debug; désactivé
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -153,39 +152,14 @@ function LoginScreen() {
                 <Text style={styles.linkText}>Pas de compte ? Créer un compte</Text>
               </TouchableOpacity>
 
-              {/* Bouton Debug */}
-              <TouchableOpacity 
-                style={styles.debugButton}
-                onPress={() => setShowDebug(true)}
-              >
-                <Text style={styles.debugButtonText}>🔧 Diagnostic Connexion</Text>
-              </TouchableOpacity>
+              {/* DebugPanel retiré */}
             </View>
 
           </View>
         </View>
       </View>
 
-      {/* Modal Debug */}
-      <Modal
-        visible={showDebug}
-        animationType="slide"
-        presentationStyle="formSheet"
-        onRequestClose={() => setShowDebug(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Diagnostic Connexion</Text>
-            <TouchableOpacity 
-              onPress={() => setShowDebug(false)}
-              style={styles.closeButton}
-            >
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <DebugPanel />
-        </View>
-      </Modal>
+      {/* Modal Debug retirée */}
     </SafeAreaView>
   );
 }
