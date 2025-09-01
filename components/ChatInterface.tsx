@@ -1168,18 +1168,20 @@ export default function ChatInterface({
         {showToolbar && (
           <View style={[styles.sheet, { backgroundColor: theme.backgrounds.tertiary, borderColor: theme.borders.primary }]}>
             <Text style={[styles.sheetTitle, { color: theme.text.primary }]}>Outils</Text>
-            <TouchableOpacity style={[
-                styles.sheetItemFull,
-                { backgroundColor: theme.backgrounds.primary },
-                pressedItem === 'doc' && styles.sheetItemPressed
-              ]}
-              onPressIn={() => setPressedItem('doc')}
-              onPressOut={() => setPressedItem(null)}
-              onPress={() => { Alert.alert('Document', 'Sélection de document à venir'); setShowToolbar(false); }}
-            >
-              <Text style={styles.sheetIcon}>📄</Text>
-              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter document</Text>
-            </TouchableOpacity>
+            {false && (
+              <TouchableOpacity style={[
+                  styles.sheetItemFull,
+                  { backgroundColor: theme.backgrounds.primary },
+                  pressedItem === 'doc' && styles.sheetItemPressed
+                ]}
+                onPressIn={() => setPressedItem('doc')}
+                onPressOut={() => setPressedItem(null)}
+                onPress={() => {}}
+              >
+                <Text style={styles.sheetIcon}>📄</Text>
+                <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter document</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={[
                 styles.sheetItemFull,
@@ -1230,20 +1232,22 @@ export default function ChatInterface({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={[
-                styles.sheetItemFull,
-                { backgroundColor: theme.backgrounds.primary, justifyContent: 'space-between' },
-                pressedItem === 'private' && styles.sheetItemPressed
-              ]}
-              onPressIn={() => setPressedItem('private')}
-              onPressOut={() => setPressedItem(null)}
-              onPress={() => { togglePrivateMode(); setShowToolbar(false); }}
-            >
-              <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Conversation privée</Text>
-              <View style={[styles.switchBase, { borderColor: theme.borders.primary, backgroundColor: isPrivateMode ? (isDark ? '#4A5568' : '#E2E8F0') : 'transparent' }]}> 
-                <View style={[styles.switchKnob, { alignSelf: isPrivateMode ? 'flex-end' : 'flex-start' }]} />
-              </View>
-            </TouchableOpacity>
+            {false && (
+              <TouchableOpacity style={[
+                  styles.sheetItemFull,
+                  { backgroundColor: theme.backgrounds.primary, justifyContent: 'space-between' },
+                  pressedItem === 'private' && styles.sheetItemPressed
+                ]}
+                onPressIn={() => setPressedItem('private')}
+                onPressOut={() => setPressedItem(null)}
+                onPress={() => {}}
+              >
+                <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Conversation privée</Text>
+                <View style={[styles.switchBase, { borderColor: theme.borders.primary, backgroundColor: isPrivateMode ? (isDark ? '#4A5568' : '#E2E8F0') : 'transparent' }]}> 
+                  <View style={[styles.switchKnob, { alignSelf: isPrivateMode ? 'flex-end' : 'flex-start' }]} />
+                </View>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
