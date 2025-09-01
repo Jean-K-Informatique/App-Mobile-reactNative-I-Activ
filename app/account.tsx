@@ -57,7 +57,10 @@ export default function AccountScreen() {
 
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedPassword = password.trim();
+      console.log('[Signup] Tentative création:', normalizedEmail);
+      const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, normalizedPassword);
       console.log('Compte créé avec succès ! UID:', userCredential.user.uid);
       
       // Optionnel : Mettre à jour le profil avec prénom/nom
@@ -67,13 +70,31 @@ export default function AccountScreen() {
 
       router.replace('/main');
     } catch (error: any) {
+      const code = error?.code || 'auth/unknown';
+      const rawMsg = error?.message || '';
+      console.error('[Signup] Erreur:', code, rawMsg);
       let message = 'Erreur lors de la création du compte';
-      if (error.code === 'auth/email-already-in-use') {
-        message = 'Cette adresse email est déjà utilisée';
-      } else if (error.code === 'auth/invalid-email') {
-        message = 'Format d\'email invalide';
-      } else if (error.code === 'auth/weak-password') {
-        message = 'Le mot de passe est trop faible';
+      switch (code) {
+        case 'auth/email-already-in-use':
+          message = 'Cette adresse email est déjà utilisée';
+          break;
+        case 'auth/invalid-email':
+          message = "Format d'email invalide";
+          break;
+        case 'auth/weak-password':
+          message = 'Le mot de passe est trop faible';
+          break;
+        case 'auth/operation-not-allowed':
+          message = "Création de compte désactivée côté Firebase (operation-not-allowed)";
+          break;
+        case 'auth/network-request-failed':
+          message = 'Problème réseau. Vérifiez votre connexion et réessayez';
+          break;
+        case 'auth/too-many-requests':
+          message = 'Trop de tentatives. Réessayez plus tard';
+          break;
+        default:
+          message = `${message} (${code})`;
       }
       Alert.alert('Erreur de création', message);
     } finally {

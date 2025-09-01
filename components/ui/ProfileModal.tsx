@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { deleteCurrentUserAccountAndData } from '../../services/accountService';
 import { SUBSCRIPTION_PLANS } from '../../constants/themes';
 
 interface ProfileModalProps {
@@ -25,6 +26,10 @@ const MAX_WORDS = 150;
 export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
   const { theme, isDark, toggleTheme } = useTheme();
   const { user, signOut } = useAuth();
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [confirmChecked, setConfirmChecked] = useState(false);
+  const [confirmChecked2, setConfirmChecked2] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('account');
   
   // Données de personnalisation
@@ -180,6 +185,89 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
               >
                 <Text style={styles.logoutButtonText}>Déconnexion</Text>
               </TouchableOpacity>
+
+              {/* Suppression de compte */}
+              {!showDeleteConfirm && (
+                <TouchableOpacity
+                  style={[styles.smallDangerButton, { backgroundColor: '#ef4444' }]}
+                  disabled={deleting}
+                  onPress={() => setShowDeleteConfirm(true)}
+                >
+                  <Text style={styles.logoutButtonText}>Supprimer mon compte</Text>
+                </TouchableOpacity>
+              )}
+
+              {showDeleteConfirm && (
+                <View style={[styles.confirmCard, { borderColor: theme.borders.primary }]}> 
+                  <Text style={[styles.confirmTitle, { color: theme.text.primary }]}>Confirmation requise</Text>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setConfirmChecked(!confirmChecked)}
+                    disabled={deleting}
+                  >
+                    <View style={[
+                      styles.checkbox,
+                      { borderColor: confirmChecked ? '#10b981' : theme.borders.primary, backgroundColor: confirmChecked ? '#10b981' : 'transparent' }
+                    ]}>
+                      {confirmChecked && (<Text style={styles.checkboxTick}>✓</Text>)}
+                    </View>
+                    <Text style={[styles.confirmText, { color: theme.text.primary }]}>
+                      Je confirme la suppression de mes conversations et de mes informations sauvegardées.
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setConfirmChecked2(!confirmChecked2)}
+                    disabled={deleting}
+                  >
+                    <View style={[
+                      styles.checkbox,
+                      { borderColor: confirmChecked2 ? '#10b981' : theme.borders.primary, backgroundColor: confirmChecked2 ? '#10b981' : 'transparent' }
+                    ]}>
+                      {confirmChecked2 && (<Text style={styles.checkboxTick}>✓</Text>)}
+                    </View>
+                    <Text style={[styles.confirmText, { color: theme.text.primary }]}>
+                      Je comprends que mon compte ne sera plus accessible et que l’opération est irréversible.
+                    </Text>
+                  </TouchableOpacity>
+                  <View style={styles.buttonsRow}>
+                    <TouchableOpacity
+                      style={[styles.outlineSmallButton, { borderColor: theme.borders.primary }]}
+                      onPress={() => {
+                        if (deleting) return;
+                        setShowDeleteConfirm(false);
+                        setConfirmChecked(false);
+                        setConfirmChecked2(false);
+                      }}
+                    >
+                      <Text style={[styles.outlineSmallButtonText, { color: theme.text.primary }]}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.smallDangerButton, { backgroundColor: (confirmChecked && confirmChecked2) ? '#ef4444' : '#ef4444AA' }]}
+                      disabled={!(confirmChecked && confirmChecked2) || deleting}
+                      onPress={async () => {
+                        if (!(confirmChecked && confirmChecked2) || deleting) return;
+                        try {
+                          setDeleting(true);
+                          await deleteCurrentUserAccountAndData();
+                          Alert.alert('Compte supprimé', 'Votre compte et vos données ont été supprimés.');
+                          onClose();
+                        } catch (e: any) {
+                          if (e?.message === 'requires-recent-login') {
+                            Alert.alert('Reconnexion requise', "Pour supprimer le compte, veuillez vous reconnecter puis réessayer.");
+                          } else {
+                            Alert.alert('Erreur', e?.message || 'Impossible de supprimer le compte.');
+                          }
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                    >
+                      <Text style={styles.logoutButtonText}>{deleting ? 'Suppression…' : 'Confirmer la suppression'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           </ScrollView>
         );
@@ -308,12 +396,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    borderRadius: 12,
-    padding: 24,
-    maxWidth: '90%',
-    maxHeight: '90%',
-    width: 500,
-    minHeight: 400,
+    borderRadius: 16,
+    padding: 28,
+    maxWidth: '94%',
+    maxHeight: '92%',
+    width: 600,
+    minHeight: 520,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -470,6 +558,66 @@ const styles = StyleSheet.create({
   logoutButtonText: {
     color: '#ffffff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  smallDangerButton: {
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  // Confirmation de suppression
+  confirmCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+    marginTop: 4,
+  },
+  confirmTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 2,
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxTick: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 12,
+    fontWeight: '800',
+  },
+  confirmText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  buttonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-end',
+  },
+  outlineSmallButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  outlineSmallButtonText: {
+    fontSize: 14,
     fontWeight: '600',
   },
 }); 

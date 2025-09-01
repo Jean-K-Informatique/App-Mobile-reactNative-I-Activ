@@ -290,7 +290,7 @@ export async function sendMessageToOpenAINonStreamingResponses(
     input: messages.map((m) => ({
       role: m.role,
       content: [
-        { type: 'input_text', text: m.content }
+        { type: m.role === 'assistant' ? 'output_text' : 'input_text', text: m.content }
       ]
     })),
     max_output_tokens: options?.maxOutputTokens ?? 1024,
@@ -539,7 +539,7 @@ export async function sendMessageToOpenAIStreamingResponses(
       input: messages.map((m) => ({
         role: m.role,
         content: [
-          { type: 'input_text', text: m.content }
+          { type: m.role === 'assistant' ? 'output_text' : 'input_text', text: m.content }
         ]
       })),
       max_output_tokens: options?.maxOutputTokens ?? 1000,
