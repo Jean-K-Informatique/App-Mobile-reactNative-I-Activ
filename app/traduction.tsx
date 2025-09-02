@@ -42,6 +42,14 @@ const POPULAR_LANGUAGES = [
 function TraductionScreen() {
   const { theme, isDark } = useTheme();
   const suckTo = useSuckNavigator();
+
+  // Redirection immédiate vers le nouvel assistant conversationnel
+  useEffect(() => {
+    suckTo('/assistants/traduction', { replace: true });
+  }, []);
+
+  // Retour vide pendant la redirection
+  return null;
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [targetLang, setTargetLang] = useState('Anglais');

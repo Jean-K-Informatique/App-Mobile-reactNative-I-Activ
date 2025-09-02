@@ -17,6 +17,15 @@ const { width } = Dimensions.get('window');
 function OrthographeScreen() {
   const { theme, isDark } = useTheme();
   const suckTo = useSuckNavigator();
+
+  // Redirection immédiate vers le nouvel assistant conversationnel
+  useEffect(() => {
+    suckTo('/assistants/correction', { replace: true });
+  }, []);
+
+  // Retour vide pendant la redirection
+  return null;
+  
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
