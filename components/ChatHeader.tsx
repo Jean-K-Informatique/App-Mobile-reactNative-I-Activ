@@ -2,13 +2,14 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../contexts/ThemeContext';
-import { NavbarIcon } from './icons/SvgIcons';
+import { NavbarIcon, WidgetsIcon } from './icons/SvgIcons';
 
 interface ChatHeaderProps {
   currentAssistant: string;
   onNewChat: () => void; // Renommé de onReset à onNewChat
   onToggleSidebar: () => void;
   onOpenAssistantPicker?: () => void;
+  onGoWidgets?: () => void;
 }
 
 // Icône Plus pour nouveau chat
@@ -68,7 +69,7 @@ function SaveIcon({ size = 20, color }: { size?: number; color?: string }) {
   );
 }
 
-export default function ChatHeader({ currentAssistant, onNewChat, onToggleSidebar, onOpenAssistantPicker }: ChatHeaderProps) {
+export default function ChatHeader({ currentAssistant, onNewChat, onToggleSidebar, onOpenAssistantPicker, onGoWidgets }: ChatHeaderProps) {
   const { theme } = useTheme();
 
   return (
@@ -90,18 +91,19 @@ export default function ChatHeader({ currentAssistant, onNewChat, onToggleSideba
 
       {/* Boutons d'action */}
       <View style={styles.actions}>
-        {/* Ouvrir sélection d'assistant */}
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
-          onPress={onOpenAssistantPicker}
-        >
-          <Text style={styles.actionIcon}>🔍</Text>
-        </TouchableOpacity>
+        {/* Nouveau chat */}
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: theme.backgrounds.secondary }]}
           onPress={onNewChat}
         >
           <PlusIcon size={16} />
+        </TouchableOpacity>
+        {/* Aller aux widgets - taille standardisée */}
+        <TouchableOpacity
+          style={[styles.widgetButton, { backgroundColor: theme.backgrounds.secondary }]}
+          onPress={onGoWidgets}
+        >
+          <WidgetsIcon size={20} />
         </TouchableOpacity>
       </View>
     </View>
@@ -148,6 +150,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+  },
+  widgetButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   actionIcon: {
     fontSize: 16,

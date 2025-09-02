@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">APP I-Activ</string>
+  <string name="expo_system_ui_user_interface_style" translatable="false">automatic</string>
+  
+  <!-- Chaînes de localisation pour les menus contextuels -->
+  <string name="copy">Copier</string>
+  <string name="paste">Coller</string>
+  <string name="cut">Couper</string>
+  <string name="select">Sélectionner</string>
+  <string name="select_all">Tout sélectionner</string>
+  <string name="replace">Remplacer</string>
+  <string name="replace_all">Tout remplacer</string>
+  <string name="find">Rechercher</string>
+  <string name="delete">Supprimer</string>
+  <string name="cancel">Annuler</string>
+  <string name="done">Terminé</string>
+  <string name="ok">OK</string>
+  <string name="yes">Oui</string>
+  <string name="no">Non</string>
+</resources>

@@ -1,0 +1,30 @@
+/* Chaînes de localisation française pour iOS */
+
+/* Menus contextuels */
+"Copy" = "Copier";
+"Paste" = "Coller";
+"Cut" = "Couper";
+"Select" = "Sélectionner";
+"Select All" = "Tout sélectionner";
+"Replace" = "Remplacer";
+"Replace All" = "Tout remplacer";
+"Find" = "Rechercher";
+"Delete" = "Supprimer";
+"Cancel" = "Annuler";
+"Done" = "Terminé";
+"OK" = "OK";
+"Yes" = "Oui";
+"No" = "Non";
+
+/* Autres chaînes communes */
+"Search" = "Rechercher";
+"Edit" = "Modifier";
+"Share" = "Partager";
+"Save" = "Enregistrer";
+"Open" = "Ouvrir";
+"Close" = "Fermer";
+"Back" = "Retour";
+"Next" = "Suivant";
+"Previous" = "Précédent";
+"Undo" = "Annuler";
+"Redo" = "Rétablir";

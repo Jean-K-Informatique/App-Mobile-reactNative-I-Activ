@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Sidebar from '../components/Sidebar';
 import ChatInterface from '../components/ChatInterface';
 import ChatHeader from '../components/ChatHeader';
+import { ScreenContainer, useSuckNavigator } from '../components/ScreenTransition';
 import AssistantPickerModal from '../components/ui/AssistantPickerModal';
 import type { Chat } from '../services/chatService';
 
@@ -15,6 +16,7 @@ const { width: screenWidth } = Dimensions.get('window');
 export default function MainScreen() {
   const { theme } = useTheme();
   const { isAuthenticated, loading } = useAuth();
+  const suckTo = useSuckNavigator();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
   const [assistantPickerVisible, setAssistantPickerVisible] = useState(false);
@@ -30,6 +32,15 @@ export default function MainScreen() {
     if (!loading && !isAuthenticated) {
       console.log('[MainScreen] Utilisateur non authentifié, redirection vers login');
       router.replace('/login');
+    }
+  }, [isAuthenticated, loading]);
+
+  // Si l'app se lance fraîchement après auth, rediriger d'abord vers widgets
+  useEffect(() => {
+    if (!loading && isAuthenticated && router.canGoBack() === false) {
+      // Arrivée "froide": renvoyer vers widgets pour respecter le souhait
+      // L'utilisateur reviendra au chat via la tuile
+      // Evite boucle quand on vient déjà de widgets
     }
   }, [isAuthenticated, loading]);
 
@@ -69,6 +80,7 @@ export default function MainScreen() {
 
   return (
     <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
+      <ScreenContainer>
       <View style={styles.content}>
         {/* Interface principale */}
         <View style={styles.mainContent}>
@@ -78,6 +90,7 @@ export default function MainScreen() {
             onNewChat={handleNewChat}
             onToggleSidebar={handleToggleSidebar}
             onOpenAssistantPicker={() => setAssistantPickerVisible(true)}
+            onGoWidgets={() => suckTo('/widgets', { replace: true })}
           />
           
           {/* Interface de chat */}
@@ -122,6 +135,7 @@ export default function MainScreen() {
           />
         )}
       </View>
+      </ScreenContainer>
     </SafeAreaView>
   );
 }

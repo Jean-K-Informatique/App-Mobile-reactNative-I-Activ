@@ -13,8 +13,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!loading) {
       if (isAuthenticated) {
-        console.log('Utilisateur connecté, redirection vers l\'interface principale');
-        router.replace('/main');
+        console.log('Utilisateur connecté, redirection vers widgets');
+        router.replace('/widgets');
       } else {
         console.log('Utilisateur non connecté, redirection vers login');
         router.replace('/login');

@@ -13,16 +13,24 @@
     ],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
+    "locales": {
+      "fr": "./locales/fr.json"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jeankiactiv.boltexponativewind"
+      "bundleIdentifier": "com.jeankiactiv.boltexponativewind",
+      "infoPlist": {
+        "CFBundleLocalizations": ["fr", "en"],
+        "CFBundleDevelopmentRegion": "fr"
+      }
     },
     "android": {
       "package": "com.jeankiactiv.boltexponativewind",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "locales": ["fr", "en"]
     },
     "web": {
       "bundler": "metro",

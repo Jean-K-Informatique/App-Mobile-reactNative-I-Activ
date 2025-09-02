@@ -1,5 +1,5 @@
 import React from 'react';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { useTheme } from '../../contexts/ThemeContext';
 
 interface IconProps {
@@ -182,3 +182,18 @@ export function ToolsIcon({ size = 20, color }: IconProps) {
     </Svg>
   );
 } 
+
+// Icône Widgets (grille 2x2) – symbole unique pour revenir aux widgets
+export function WidgetsIcon({ size = 20, color }: IconProps) {
+  const { theme } = useTheme();
+  const iconColor = color || theme.text.primary;
+
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x="3" y="3" width="8" height="8" rx="2" stroke={iconColor} strokeWidth="2" />
+      <Rect x="13" y="3" width="8" height="8" rx="2" stroke={iconColor} strokeWidth="2" />
+      <Rect x="3" y="13" width="8" height="8" rx="2" stroke={iconColor} strokeWidth="2" />
+      <Rect x="13" y="13" width="8" height="8" rx="2" stroke={iconColor} strokeWidth="2" />
+    </Svg>
+  );
+}

@@ -1,0 +1,16 @@
+{
+  "copy": "Copier",
+  "paste": "Coller",
+  "cut": "Couper",
+  "select": "Sélectionner",
+  "selectAll": "Tout sélectionner",
+  "replace": "Remplacer",
+  "replaceAll": "Tout remplacer",
+  "find": "Rechercher",
+  "delete": "Supprimer",
+  "cancel": "Annuler",
+  "done": "Terminé",
+  "ok": "OK",
+  "yes": "Oui",
+  "no": "Non"
+}

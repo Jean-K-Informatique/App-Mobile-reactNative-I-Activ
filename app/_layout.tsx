@@ -18,11 +18,15 @@ function AppContent() {
         <Stack.Screen name="account" />
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="main" />
+        <Stack.Screen name="widgets" />
+        <Stack.Screen name="orthographe" />
+        <Stack.Screen name="traduction" />
+        <Stack.Screen name="maths" />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar 
         style={isDark ? "light" : "dark"} 
-        backgroundColor={theme.backgrounds.primary}
+        backgroundColor={isDark ? '#0f1115' : '#0f1115'}
       />
     </>
   );

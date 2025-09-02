@@ -1,0 +1,9 @@
+/* Localisation française pour Info.plist */
+
+/* Nom de l'application */
+"CFBundleDisplayName" = "APP I-Activ";
+
+/* Permissions descriptions en français */
+"NSCameraUsageDescription" = "L'application utilise l'appareil photo pour partager des images dans le chat";
+"NSMicrophoneUsageDescription" = "L'application utilise le microphone pour enregistrer des messages audio";
+"NSPhotoLibraryUsageDescription" = "L'application accède aux photos pour partager des images dans le chat";
