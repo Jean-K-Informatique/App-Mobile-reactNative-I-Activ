@@ -508,8 +508,7 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
           <View style={[
             styles.inputContainer,
             {
-              backgroundColor: theme.backgrounds.chatInput,
-              borderColor: theme.borders.chatInput || theme.borders.primary,
+              backgroundColor: theme.backgrounds.primary, // Même fond que la page
             }
           ]}>
             <View style={styles.inputRow}>
@@ -558,22 +557,7 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
           </View>
         </KeyboardAvoidingView>
 
-        {/* Bouton Mon Compte */}
-        <View style={styles.accountButtonContainer}>
-          <TouchableOpacity 
-            style={[styles.accountButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}
-            onPress={() => setShowProfileModal(true)}
-            activeOpacity={0.8}
-          >
-            <UserIcon size={20} color={theme.text.primary} />
-          </TouchableOpacity>
-        </View>
 
-        {/* Modale Profile */}
-        <ProfileModal 
-          visible={showProfileModal}
-          onClose={() => setShowProfileModal(false)}
-        />
       </ScreenContainer>
     </SafeAreaView>
   );

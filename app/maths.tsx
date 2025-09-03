@@ -24,10 +24,10 @@ interface ModeConfig {
 const MODES: ModeConfig[] = [
   {
     id: 'assistant',
-    title: 'Assistant IA',
-    subtitle: 'Résoudre tout problème mathématique',
-    icon: '🤖',
-    gradient: ['#667eea', '#764ba2']
+    title: 'Chat Math',
+    subtitle: 'Assistant conversationnel IA',
+    icon: '🧮',
+    gradient: ['#10b981', '#059669']
   },
   {
     id: 'pourcentage',
@@ -106,49 +106,8 @@ function MathsScreen() {
   };
 
   const runAssistant = async () => {
-    if (!assistantQuestion.trim()) return;
-    
-    setLoading(true);
-    Keyboard.dismiss();
-    
-    try {
-      const sys = `Tu es un professeur de mathématiques expert et pédagogue.
-
-MISSION: Résoudre le problème mathématique avec excellence pédagogique.
-
-RÈGLES:
-- Analyse le problème étape par étape
-- Explique clairement chaque étape de résolution
-- Utilise des formules claires et bien formatées
-- Donne des exemples si nécessaire
-- Propose des vérifications du résultat
-- Reste précis et rigoureux
-- Adapte ton niveau à la complexité du problème
-
-FORMAT DE RÉPONSE:
-1. **Analyse**: Comprendre le problème
-2. **Méthode**: Approche de résolution
-3. **Calculs**: Étapes détaillées
-4. **Résultat**: Réponse finale claire
-5. **Vérification**: (si applicable)
-
-OBJECTIF: Enseigner et résoudre avec clarté maximale.`;
-
-      const messages: ChatMessage[] = [
-        { role: 'system', content: sys },
-        { role: 'user', content: assistantQuestion },
-      ];
-      
-      const response = await sendMessageToOpenAINonStreamingResponses(messages, DEFAULT_GPT5_MODEL, 'low', { maxOutputTokens: 1500 });
-      setResult(response.trim());
-      animateResult();
-      
-    } catch (error) {
-      setResult('Erreur lors du calcul. Veuillez réessayer.');
-      animateResult();
-    } finally {
-      setLoading(false);
-    }
+    // Redirection vers le nouvel assistant conversationnel
+    suckTo('/assistants/chat-math', { replace: true });
   };
 
   const calcPourcentage = () => {
@@ -308,31 +267,16 @@ OBJECTIF: Enseigner et résoudre avec clarté maximale.`;
     </TouchableOpacity>
   );
 
-  const renderAssistantForm = () => (
-    <View style={styles.formSection}>
-      <Text style={[styles.formTitle, { color: theme.text.primary }]}>
-        Assistant Mathématiques
-      </Text>
-      <Text style={[styles.formDescription, { color: theme.text.secondary }]}>
-        Décrivez votre problème mathématique en détail
-      </Text>
-      
-      <View style={[styles.inputCard, { 
-        backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
-        borderColor: isDark ? '#333' : '#e5e7eb'
-      }]}>
-        <TextInput
-          style={[styles.textArea, { color: theme.text.primary }]}
-          placeholder="Ex: Calcule la dérivée de x² + 3x - 5, ou résous l'équation 2x + 3 = 11..."
-          placeholderTextColor={theme.text.secondary}
-          multiline
-          value={assistantQuestion}
-          onChangeText={setAssistantQuestion}
-          textAlignVertical="top"
-        />
-      </View>
-    </View>
-  );
+  const renderAssistantForm = () => {
+    // Redirection immédiate vers l'assistant conversationnel
+    useEffect(() => {
+      if (selectedMode === 'assistant') {
+        suckTo('/assistants/chat-math', { replace: true });
+      }
+    }, [selectedMode]);
+
+    return null; // Ne rien rendre, redirection en cours
+  };
 
   const renderPercentageForm = () => (
     <View style={styles.formSection}>
@@ -528,27 +472,29 @@ OBJECTIF: Enseigner et résoudre avec clarté maximale.`;
                   </TouchableOpacity>
                 </View>
                 
-                {renderForm()}
+                {selectedMode !== 'assistant' && renderForm()}
                 
-                <View style={styles.actionSection}>
-                  <TouchableOpacity 
-                    style={[styles.calculateButton, { opacity: !canCalculate() || loading ? 0.6 : 1 }]} 
-                    onPress={executeCalculation} 
-                    disabled={!canCalculate() || loading}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={getCurrentModeConfig()?.gradient || ['#667eea', '#764ba2']}
-                      style={styles.calculateButtonGradient}
-                      start={[0, 0]}
-                      end={[1, 0]}
+                {selectedMode !== 'assistant' && (
+                  <View style={styles.actionSection}>
+                    <TouchableOpacity 
+                      style={[styles.calculateButton, { opacity: !canCalculate() || loading ? 0.6 : 1 }]} 
+                      onPress={executeCalculation} 
+                      disabled={!canCalculate() || loading}
+                      activeOpacity={0.8}
                     >
-                      <Text style={styles.calculateButtonText}>
-                        {loading ? 'Calcul en cours...' : 'Calculer'}
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
+                      <LinearGradient
+                        colors={getCurrentModeConfig()?.gradient || ['#667eea', '#764ba2']}
+                        style={styles.calculateButtonGradient}
+                        start={[0, 0]}
+                        end={[1, 0]}
+                      >
+                        <Text style={styles.calculateButtonText}>
+                          {loading ? 'Calcul en cours...' : 'Calculer'}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 {result.length > 0 && (
                   <Animated.View 

@@ -22,6 +22,15 @@ function AppContent() {
         <Stack.Screen name="orthographe" />
         <Stack.Screen name="traduction" />
         <Stack.Screen name="maths" />
+        <Stack.Screen name="maths-unified" />
+        <Stack.Screen name="maths-new" />
+        <Stack.Screen name="assistants/correction" />
+        <Stack.Screen name="assistants/traduction" />
+        <Stack.Screen name="assistants/chat-math" />
+        <Stack.Screen name="assistants/resume" />
+        <Stack.Screen name="assistants/cuisine" />
+        <Stack.Screen name="resume" />
+        <Stack.Screen name="cuisine" />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar 

@@ -1,11 +1,12 @@
-import React, { memo, useMemo, useCallback } from 'react';
+import React, { memo, useMemo, useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { ScreenContainer, useSuckNavigator } from '../components/ScreenTransition';
 import { useTheme } from '../contexts/ThemeContext';
-import { getCachedImage } from '../utils/performance';
+import { UserIcon } from '../components/icons/SvgIcons';
+import ProfileModal from '../components/ui/ProfileModal';
 
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -21,6 +22,7 @@ type Tile = {
 
 // Composant Tile mémorisé pour éviter les re-renders
 const TileComponent = memo(({ tile, onPress }: { tile: Tile; onPress: (route: string) => void }) => {
+  const { theme } = useTheme();
   const handlePress = useCallback(() => {
     onPress(tile.route);
   }, [tile.route, onPress]);
@@ -33,17 +35,20 @@ const TileComponent = memo(({ tile, onPress }: { tile: Tile; onPress: (route: st
         onPress={handlePress}
       >
         <Image 
-          source={getCachedImage(tile.image)} 
+          source={tile.image} 
           style={styles.tileImageFull} 
           resizeMode="cover"
-          fadeDuration={0} // Supprime l'animation de fade pour plus de fluidité
+          fadeDuration={0}
+          // Optimisations natives React Native
+          cache="force-cache"
+          loadingIndicatorSource={undefined}
         />
       </TouchableOpacity>
       
-      {/* Titres sous la carte */}
+      {/* Titres sous la carte - Adaptatifs au thème */}
       <View style={styles.tileTextBelow}>
-        <Text style={styles.tileTitle}>{tile.title}</Text>
-        <Text style={styles.tileSubtitle}>{tile.subtitle}</Text>
+        <Text style={[styles.tileTitle, { color: theme.text.primary }]}>{tile.title}</Text>
+        <Text style={[styles.tileSubtitle, { color: theme.text.secondary }]}>{tile.subtitle}</Text>
       </View>
     </View>
   );
@@ -69,6 +74,22 @@ const TILES: Tile[] = [
     gradient: ['#f093fb', '#f5576c'],
   },
   {
+    id: 'cuisine',
+    title: 'Cuisine',
+    subtitle: 'Assistant recettes',
+    image: require('../assets/images/cuisine.png'),
+    route: '/cuisine',
+    gradient: ['#f59e0b', '#d97706'],
+  },
+  {
+    id: 'resume',
+    title: 'Résumé',
+    subtitle: 'Synthèse de textes',
+    image: require('../assets/images/resume.png'),
+    route: '/resume',
+    gradient: ['#8b5cf6', '#7c3aed'],
+  },
+  {
     id: 'traduction',
     title: 'Traduction',
     subtitle: 'Traduire instantanément',
@@ -81,7 +102,7 @@ const TILES: Tile[] = [
     title: 'Calculatrice',
     subtitle: 'Assistant mathématiques',
     image: require('../assets/images/math.png'),
-    route: '/maths',
+    route: '/maths-unified',
     gradient: ['#43e97b', '#38f9d7'],
   },
 ];
@@ -89,30 +110,35 @@ const TILES: Tile[] = [
 function WidgetsScreen() {
   const { theme, isDark } = useTheme();
   const suckTo = useSuckNavigator();
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const renderTile = useCallback((tile: Tile) => (
     <TileComponent key={tile.id} tile={tile} onPress={suckTo} />
   ), [suckTo]);
 
-  // Mémoriser le logo pour éviter les re-renders
+  // Logo adaptatif selon le thème
   const logoImage = useMemo(() => (
     <Image 
-      source={getCachedImage(require('../assets/images/LogoTexteBlanc.png'))} 
+      source={isDark 
+        ? require('../assets/images/LogoTexteBlanc.png')
+        : require('../assets/images/LogoTexteNoir.png')
+      } 
       style={styles.logoImage} 
       resizeMode="contain"
       fadeDuration={0}
+      cache="force-cache"
     />
-  ), []);
+  ), [isDark]);
 
   return (
-    <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: '#0a0b0f' }]}> 
+    <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}> 
       <ScreenContainer>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {/* Header avec même fond que la page */}
           <View style={styles.headerSection}>
             <View style={styles.headerContent}>
               {logoImage}
-              <Text style={styles.pageSubtitle}>Votre assistant intelligent</Text>
+              <Text style={[styles.pageSubtitle, { color: theme.text.secondary }]}>Votre assistant intelligent</Text>
             </View>
           </View>
 
@@ -123,17 +149,71 @@ function WidgetsScreen() {
           
           {/* Footer décoratif */}
           <View style={styles.footerSection}>
-            <Text style={styles.footerText}>Tapez sur une carte pour commencer</Text>
+            <Text style={[styles.footerText, { color: theme.text.secondary }]}>Tapez sur une carte pour commencer</Text>
           </View>
         </ScrollView>
 
+        {/* Menu fixe en bas (style Instagram) - Version opaque */}
+        <View style={[styles.bottomMenu, { 
+          backgroundColor: isDark ? theme.backgrounds.primary : '#ffffff',
+          borderTopColor: isDark ? '#2a2a2a' : '#e5e7eb'
+        }]}>
+          <TouchableOpacity 
+            style={styles.menuButton}
+            onPress={() => setShowProfileModal(true)}
+            activeOpacity={0.7}
+          >
+            <UserIcon size={24} color={theme.text.primary} />
+            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
+              Compte
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.menuButton}
+            onPress={() => {/* TODO: Actualités */}}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>📰</Text>
+            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
+              Actualités
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.menuButton}
+            onPress={() => {/* TODO: Provisoire 1 */}}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>⭐</Text>
+            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
+              Favoris
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.menuButton}
+            onPress={() => {/* TODO: Provisoire 2 */}}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>⚙️</Text>
+            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
+              Options
+            </Text>
+          </TouchableOpacity>
+        </View>
 
+        {/* Modale Profile */}
+        <ProfileModal 
+          visible={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+        />
       </ScreenContainer>
     </SafeAreaView>
   );
 }
 
-const gap = 16;
+const gap = 12; // Réduit pour 6 widgets
 const columns = 2;
 const tileWidth = Math.floor((screenWidth - (gap * (columns + 1))) / columns);
 
@@ -144,6 +224,7 @@ const styles = StyleSheet.create({
   content: { 
     padding: gap,
     paddingTop: 24,
+    paddingBottom: 100, // Espace pour le menu fixe
   },
   
   headerSection: {
@@ -159,13 +240,11 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 32,
     fontWeight: '800',
-    color: '#ffffff',
     marginBottom: 4,
     letterSpacing: -1,
   },
   pageSubtitle: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.7)',
     fontWeight: '500',
   },
   
@@ -212,14 +291,12 @@ const styles = StyleSheet.create({
   tileTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#ffffff',
     marginBottom: 4,
     textAlign: 'center',
     letterSpacing: -0.3,
   },
   tileSubtitle: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
     fontWeight: '500',
     lineHeight: 18,
@@ -232,10 +309,45 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   footerText: {
-    color: 'rgba(255,255,255,0.5)',
     fontSize: 14,
     fontWeight: '500',
   },
+  // Menu fixe en bas (style Instagram) - Version compacte et opaque
+  bottomMenu: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  menuButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 60,
+  },
+  menuIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  menuButtonText: {
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
 });
 
 // Exportation mémorisée du composant principal

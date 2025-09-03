@@ -24,7 +24,7 @@ interface ProfileModalProps {
   onClose: () => void;
 }
 
-type TabType = 'account' | 'subscription' | 'customization';
+type TabType = 'account' | 'customization';
 
 const MAX_WORDS = 150;
 
@@ -220,43 +220,32 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
                 🔐 Actions du compte
               </Text>
 
-              {/* Bouton de déconnexion moderne */}
+              {/* Bouton de déconnexion modernisé */}
               <TouchableOpacity 
-                style={styles.actionButton}
+                style={[styles.actionButton, { backgroundColor: isDark ? '#2a2a2a' : '#f3f4f6' }]}
                 onPress={() => {
                   onClose();
                   signOut();
                 }}
                 activeOpacity={0.8}
               >
-                <LinearGradient
-                  colors={['#f59e0b', '#f97316']}
-                  style={styles.actionButtonGradient}
-                  start={[0, 0]}
-                  end={[1, 0]}
-                >
+                <View style={styles.actionButtonContent}>
                   <Text style={styles.actionButtonIcon}>🚪</Text>
-                  <Text style={styles.actionButtonText}>Déconnexion</Text>
-                </LinearGradient>
+                  <Text style={[styles.actionButtonText, { color: theme.text.primary }]}>Déconnexion</Text>
+                </View>
               </TouchableOpacity>
 
-              {/* Suppression de compte modernisée */}
+              {/* Suppression de compte discrète */}
               {!showDeleteConfirm && (
                 <TouchableOpacity
-                  style={styles.dangerButton}
+                  style={[styles.dangerButton, { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ef4444' }]}
                   disabled={deleting}
                   onPress={() => setShowDeleteConfirm(true)}
                   activeOpacity={0.8}
                 >
-                  <LinearGradient
-                    colors={['#ef4444', '#dc2626']}
-                    style={styles.actionButtonGradient}
-                    start={[0, 0]}
-                    end={[1, 0]}
-                  >
-                    <Text style={styles.actionButtonIcon}>🗑️</Text>
-                    <Text style={styles.actionButtonText}>Supprimer mon compte</Text>
-                  </LinearGradient>
+                  <View style={styles.dangerButtonContent}>
+                    <Text style={[styles.dangerButtonText, { color: '#ef4444' }]}>Supprimer mon compte</Text>
+                  </View>
                 </TouchableOpacity>
               )}
 
@@ -362,20 +351,7 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
           </ScrollView>
         );
 
-      case 'subscription':
-        return (
-          <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
-              💳 Gestion de l'abonnement
-            </Text>
-            <Text style={[styles.sectionDescription, { color: theme.text.secondary }]}>
-              Gérez votre forfait et vos options d'abonnement
-            </Text>
-            <SubscriptionCard plan="ESSENTIEL" />
-            <SubscriptionCard plan="PERFORMANCE" isActive={true} />
-            <SubscriptionCard plan="PROFESSIONNEL" />
-          </ScrollView>
-        );
+
 
       case 'customization':
         return (
@@ -443,19 +419,12 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
       onRequestClose={onClose}
       presentationStyle="fullScreen"
     >
-      <SafeAreaView edges={['top','bottom']} style={[styles.modalOverlay, { backgroundColor: theme.backgrounds.primary }]}>
+      <SafeAreaView edges={['bottom']} style={[styles.modalOverlay, { backgroundColor: theme.backgrounds.primary }]}>
         <View style={styles.modalContent}>
-          {/* Header moderne */}
-          <View style={[styles.modalHeader, { borderBottomColor: isDark ? '#333' : '#e5e7eb' }]}>
+                        {/* Header moderne et simplifié */}
+          <View style={[styles.modalHeader, { borderBottomColor: isDark ? '#2a2a2a' : '#f0f0f0' }]}>
             <View style={styles.headerLeft}>
-              <LinearGradient
-                colors={isDark ? ['#8b5cf6', '#a78bfa'] : ['#6366f1', '#8b5cf6']}
-                style={styles.titleGradient}
-                start={[0, 0]}
-                end={[1, 0]}
-              >
-                <Text style={styles.modalTitle}>Mon Profil</Text>
-              </LinearGradient>
+              <Text style={[styles.modalTitle, { color: theme.text.primary }]}>Mon Profil</Text>
               <Text style={[styles.modalSubtitle, { color: theme.text.secondary }]}>
                 Gérez votre compte et vos préférences
               </Text>
@@ -472,7 +441,6 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
           <View style={[styles.tabsContainer, { backgroundColor: isDark ? '#1a1a1a' : '#f8f9fa' }]}>
             {[
               { key: 'account', label: 'Compte', icon: '👤' },
-              { key: 'subscription', label: 'Abonnement', icon: '💳' },
               { key: 'customization', label: 'Personnalisation', icon: '🎨' },
             ].map((tab) => (
               <TouchableOpacity
@@ -524,29 +492,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingVertical: 16,
+    paddingTop: 40,
     borderBottomWidth: 1,
   },
   headerLeft: {
     flex: 1,
   },
-  titleGradient: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#ffffff',
+    fontSize: 24,
+    fontWeight: '700',
     letterSpacing: -0.5,
+    marginBottom: 4,
   },
   modalSubtitle: {
     fontSize: 14,
     fontWeight: '500',
-    marginLeft: 4,
   },
   closeButton: {
     width: 40,
@@ -707,24 +668,16 @@ const styles = StyleSheet.create({
   },
   
   actionButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
+    borderRadius: 12,
     marginVertical: 8,
-    shadowColor: '#f59e0b',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
   },
   dangerButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
+    borderRadius: 8,
     marginVertical: 8,
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   saveButton: {
     borderRadius: 16,
@@ -737,7 +690,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  actionButtonGradient: {
+  actionButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -749,10 +702,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   actionButtonText: {
-    color: '#ffffff',
     fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontWeight: '600',
+  },
+  dangerButtonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   
   subscriptionCard: {
