@@ -218,7 +218,7 @@ export async function sendMessageToGPT5ChatCompletions(
       stream: true,
       // ⚡ OPTIMISATIONS GPT-5 pour vitesse
       stream_options: { include_usage: false }, // Réduire overhead
-      max_tokens: 2048, // Limite raisonnable
+      max_completion_tokens: 2048, // GPT-5 utilise max_completion_tokens au lieu de max_tokens
     };
     
     // Ajouter température seulement si spécifiée
@@ -533,10 +533,12 @@ export async function sendMessageToOpenAIStreaming(
     };
 
     // ⚡ Corps de requête optimisé
+    const isGpt5 = /gpt-5/i.test(model);
     const requestBody = JSON.stringify({
       model: model,
       messages: messages,
-      max_tokens: 2048,
+      // GPT-5 utilise max_completion_tokens, autres modèles utilisent max_tokens
+      ...(isGpt5 ? { max_completion_tokens: 2048 } : { max_tokens: 2048 }),
       temperature: 0.7,
       stream: true, // CRUCIAL : Activer le streaming
       // ⚡ Optimisations OpenAI
