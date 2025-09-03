@@ -13,7 +13,8 @@ import {
   Platform,
   Keyboard,
   Image,
-  Linking
+  Linking,
+  ActionSheetIOS
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../contexts/ThemeContext';
@@ -22,11 +23,14 @@ import { fetchUserChats, type Chat } from '../services/chatService';
 import { 
   sendMessageToOpenAIStreamingResponses,
   sendMessageToOpenAINonStreamingResponses,
+  sendMessageToOpenAIStreaming,
+  analyzeImageWithOpenAIStreaming,
   DEFAULT_GPT5_MODEL,
   type ChatMessage, 
   type StreamingCallbacks,
   type ReasoningEffort
 } from '../services/openaiService';
+import * as ImagePicker from 'expo-image-picker';
 import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon } from './icons/SvgIcons';
 import SyntaxHighlighter from 'react-native-syntax-highlighter';
 // @ts-ignore - styles import from react-syntax-highlighter
@@ -108,15 +112,20 @@ export default function ChatInterface({
   const reasoningDisabled = true;
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [webSourcesByMessageId, setWebSourcesByMessageId] = useState<{[id: string]: PerplexitySearchResultItem[]}>({});
+  const [imagePicking, setImagePicking] = useState(false);
   const reasoningTimerRef = useRef<number | null>(null);
   const [reasoningSeconds, setReasoningSeconds] = useState(0);
   const [pressedItem, setPressedItem] = useState<string | null>(null);
   const webTimerRef = useRef<number | null>(null);
   const [webSeconds, setWebSeconds] = useState(0);
 
-  // Contrôleur d'effet machine à écrire
-  const typewriterTimerRef = useRef<number | null>(null);
-  const typewriterQueueRef = useRef<string>('');
+  // ⚡ Métriques de performance simplifiées
+  const requestStartTimeRef = useRef<number>(0);
+  const firstWordMeasuredRef = useRef<boolean>(false);
+
+  // ⚡ Contrôleur de streaming DIRECT (sans machine à écrire)
+  const lastUpdateTimeRef = useRef<number>(0);
+  const streamingBufferRef = useRef<string>('');
 
   // Pré-formatage léger pour améliorer le rendu Markdown lorsque l'IA n'utilise pas les #/listes
   const formatForMarkdown = useCallback((raw: string): string => {
@@ -283,49 +292,41 @@ export default function ChatInterface({
     }
   };
 
-  // Fonction optimisée pour l'accumulation de chunks avec batching
+  // ⚡ Fonction ULTRA-OPTIMISÉE pour l'accumulation INSTANTANÉE de chunks
   const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
-    // Alimente une file et anime au fil de l'eau (machine à écrire)
-    typewriterQueueRef.current += newChunk;
-
-    const tick = () => {
-      // Vitesse adaptative (plus la file est longue, plus on écrit vite)
-      const queueLen = typewriterQueueRef.current.length;
-      const sliceSize = queueLen > 200 ? 12 : queueLen > 80 ? 8 : queueLen > 20 ? 4 : 2;
-      const slice = typewriterQueueRef.current.slice(0, sliceSize);
-      typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
-
-      streamingTextRef.current += slice;
-      setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
-
-      if (typewriterQueueRef.current.length === 0) {
-        // Arrêter le timer si plus rien à écrire
-        if (typewriterTimerRef.current) {
-          clearInterval(typewriterTimerRef.current);
-          typewriterTimerRef.current = null;
-        }
-      }
-    };
-
-    // Démarrer le timer si nécessaire
-    if (!typewriterTimerRef.current) {
-      typewriterTimerRef.current = setInterval(tick, 16); // ~60fps
+    // ⚡ Mesurer le premier chunk (UNE SEULE FOIS)
+    if (!firstWordMeasuredRef.current && newChunk.trim() && requestStartTimeRef.current > 0) {
+      const firstWordTime = performance.now() - requestStartTimeRef.current;
+      firstWordMeasuredRef.current = true;
+      console.log(`⚡ PREMIER CHUNK REÇU: ${Math.round(firstWordTime)}ms`);
     }
+    
+    // ⚡ Accumulation DIRECTE sans délai artificiel
+    streamingTextRef.current += newChunk;
+    
+    // ⚡ Mise à jour IMMÉDIATE - plus de throttling
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, text: streamingTextRef.current }
+        : msg
+    ));
   }, []);
 
-  // Fonction pour finaliser le streaming
+  // ⚡ Fonction pour finaliser le streaming INSTANTANÉMENT
   const finalizeStreamingMessage = useCallback((messageId: string, fullText: string) => {
-    // Annuler tout timeout en cours
+    // ⚡ Mesurer le temps total
+    if (requestStartTimeRef.current > 0) {
+      const totalTime = performance.now() - requestStartTimeRef.current;
+      console.log(`⚡ STREAMING TERMINÉ: ${Math.round(totalTime)}ms total (${fullText.length} caractères)`);
+    }
+    
+    // ⚡ Nettoyage rapide des timeouts
     if (updateTimeoutRef.current) {
       clearTimeout(updateTimeoutRef.current);
       updateTimeoutRef.current = null;
     }
-    if (typewriterTimerRef.current) {
-      clearInterval(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
     
-    // Faire la mise à jour finale
+    // ⚡ Mise à jour finale IMMÉDIATE
     setMessages(prev => 
       prev.map(msg => 
         msg.id === messageId 
@@ -334,9 +335,11 @@ export default function ChatInterface({
       )
     );
     
-    // Réinitialiser la ref
+    // ⚡ Réinitialisation mémoire
     streamingTextRef.current = '';
-    typewriterQueueRef.current = '';
+    streamingBufferRef.current = '';
+    requestStartTimeRef.current = 0;
+    firstWordMeasuredRef.current = false;
   }, []);
 
   // Fonction pour gérer les erreurs de streaming
@@ -360,15 +363,16 @@ export default function ChatInterface({
     streamingTextRef.current = '';
   }, []);
 
-  // Cleanup des timeouts au démontage du composant
+  // ⚡ Cleanup optimisé au démontage du composant
   useEffect(() => {
     return () => {
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
-      if (typewriterTimerRef.current) {
-        clearInterval(typewriterTimerRef.current);
-      }
+      // ⚡ Plus de timer typewriter - nettoyage simplifié
+      streamingTextRef.current = '';
+      streamingBufferRef.current = '';
+      lastUpdateTimeRef.current = 0;
     };
   }, []);
 
@@ -667,6 +671,84 @@ export default function ChatInterface({
     }
   };
 
+  const pickAndSendImage = useCallback(async () => {
+    const runWithBase64 = async (base64: string) => {
+      const assistantMessageId = (Date.now() + 1).toString();
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        text: '',
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        streaming: true
+      };
+      setMessages(prev => [...prev, { id: Date.now().toString(), text: '[Image envoyée] Analyse en cours…', isUser: true, timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }, assistantMessage]);
+
+      abortControllerRef.current = new AbortController();
+      let aggregated = '';
+      await analyzeImageWithOpenAIStreaming(
+        base64,
+        'Décris le contenu de cette image et en déduis des éléments utiles pour la conversation.',
+        {
+          onChunk: (c) => {
+            aggregated += c;
+            updateStreamingMessage(assistantMessageId, c);
+          },
+          onComplete: () => {
+            finalizeStreamingMessage(assistantMessageId, aggregated);
+          },
+          onError: () => {
+            console.error('❌ Vision onError (chat): image non analysée');
+            handleStreamingError(assistantMessageId, 'Impossible d’analyser l’image.');
+          }
+        },
+        DEFAULT_GPT5_MODEL,
+        abortControllerRef.current
+      );
+    };
+    try {
+      setImagePicking(true);
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Annuler', 'Bibliothèque', 'Caméra'],
+            cancelButtonIndex: 0,
+          },
+          async (buttonIndex) => {
+            try {
+              if (buttonIndex === 1) {
+                setTimeout(async () => {
+                  const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (libPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès aux photos.'); return; }
+                  const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                }, 150);
+              } else if (buttonIndex === 2) {
+                setTimeout(async () => {
+                  const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+                  if (camPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès à la caméra.'); return; }
+                  const result = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: true });
+                  if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                }, 150);
+              }
+            } finally {
+              setImagePicking(false);
+            }
+          }
+        );
+      } else {
+        // Android: ouvrir directement la bibliothèque (le plus attendu), sinon proposer Alert si besoin
+        const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (libPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès aux photos.'); setImagePicking(false); return; }
+        const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
+        if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+        setImagePicking(false);
+      }
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible de sélectionner l’image.');
+      setImagePicking(false);
+    }
+  }, [updateStreamingMessage, finalizeStreamingMessage, handleStreamingError]);
+
   const sendMessage = async () => {
     if (!inputText.trim() || isAITyping) return;
 
@@ -729,11 +811,15 @@ export default function ChatInterface({
       updateTimeoutRef.current = null;
     }
 
+    // ⚡ Initialiser les métriques de performance
+    requestStartTimeRef.current = performance.now();
+    firstWordMeasuredRef.current = false;
+
     // Créer AbortController pour pouvoir arrêter le streaming
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('🚀 Démarrage streaming optimisé avec modèle:', currentChat?.model || DEFAULT_GPT5_MODEL);
+      console.log('🚀 Démarrage streaming ULTRA-OPTIMISÉ avec modèle:', currentChat?.model || DEFAULT_GPT5_MODEL);
       console.log('🕵️ Mode privé actif:', isPrivateMode);
 
       // Optionnel: activer la recherche web si demandé ou si l'utilisateur a saisi /chercher
@@ -911,14 +997,14 @@ export default function ChatInterface({
         setStreamingMessageId(null);
         abortControllerRef.current = null;
       } else {
-        // Démarrer le streaming avec AbortController
+        // Démarrer le streaming avec AbortController - TOUJOURS utiliser Responses API pour GPT-5
         await sendMessageToOpenAIStreamingResponses(
           openAIMessages,
           streamingCallbacks,
           (currentChat?.model || DEFAULT_GPT5_MODEL),
           reasoningDisabled ? 'low' : reasoningEffort,
           abortControllerRef.current,
-          { maxOutputTokens: 1000 }
+          { maxOutputTokens: 2048 }
         );
       }
 
@@ -1190,7 +1276,7 @@ export default function ChatInterface({
               ]}
               onPressIn={() => setPressedItem('photo')}
               onPressOut={() => setPressedItem(null)}
-              onPress={() => { Alert.alert('Image', 'Sélection d\'image à venir'); setShowToolbar(false); }}
+              onPress={() => { setShowToolbar(false); pickAndSendImage(); }}
             >
               <ImageIcon size={18} />
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter photo</Text>
@@ -1329,6 +1415,8 @@ export default function ChatInterface({
             )}
           </TouchableOpacity>
         </View>
+
+
 
         {/* Indicateur mode privé */}
         {isPrivateMode && (

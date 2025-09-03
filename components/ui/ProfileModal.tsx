@@ -15,7 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { deleteCurrentUserAccountAndData } from '../../services/accountService';
-import { SUBSCRIPTION_PLANS } from '../../constants/themes';
+// Abonnements retirés: ne plus importer SUBSCRIPTION_PLANS
 
 const { width } = Dimensions.get('window');
 
@@ -100,50 +100,7 @@ export default function ProfileModal({ visible, onClose }: ProfileModalProps) {
     );
   };
 
-  const SubscriptionCard = ({ 
-    plan, 
-    isActive = false 
-  }: { 
-    plan: keyof typeof SUBSCRIPTION_PLANS; 
-    isActive?: boolean;
-  }) => {
-    const planData = SUBSCRIPTION_PLANS[plan];
-    
-    return (
-      <View style={[
-        styles.subscriptionCard,
-        { 
-          backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
-          borderColor: isActive ? planData.color + '40' : (isDark ? '#333' : '#e5e7eb')
-        }
-      ]}>
-        <View style={styles.planHeader}>
-          <Text style={[styles.planName, { color: theme.text.primary }]}>{plan}</Text>
-          <View style={[
-            styles.statusBadge,
-            {
-              backgroundColor: isActive ? '#10b981' + '20' : '#f59e0b' + '20'
-            }
-          ]}>
-            <Text style={[
-              styles.statusText,
-              { color: isActive ? '#10b981' : '#f59e0b' }
-            ]}>
-              {isActive ? 'Actif' : 'Inactif'}
-            </Text>
-          </View>
-        </View>
-        <Text style={[styles.planPrice, { color: planData.color }]}>
-          {planData.price}/mois
-        </Text>
-        {plan === 'PERFORMANCE' && (
-          <Text style={[styles.popularLabel, { color: '#8b5cf6' }]}>
-            ⭐ Populaire
-          </Text>
-        )}
-      </View>
-    );
-  };
+  // Abonnements retirés: suppression de la carte d'abonnement
 
   const renderTabContent = () => {
     switch (activeTab) {

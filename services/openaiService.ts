@@ -18,6 +18,284 @@ export type ReasoningEffort = 'low' | 'high' | 'medium';
 
 export const DEFAULT_GPT5_MODEL = 'gpt-5-nano-2025-08-07';
 
+// 🧪 NOUVEAU: Test GPT-5 avec Chat Completions (code direct du Playground OpenAI)
+export async function testGPT5ChatCompletions(
+  messages: ChatMessage[] = []
+): Promise<string> {
+  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  
+  if (!API_KEY) {
+    throw new Error('Clé API OpenAI non configurée');
+  }
+
+  try {
+    console.log('🧪 Test GPT-5 Chat Completions - Code officiel du Playground');
+    
+    // Messages par défaut pour le test si aucun fourni
+    const testMessages = messages.length > 0 ? messages : [
+      { role: 'user', content: 'Bonjour ! Peux-tu me confirmer que tu es GPT-5 et que le Chat Completion fonctionne ?' }
+    ];
+
+    // Code EXACT du Playground OpenAI
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: "gpt-5-nano",
+        messages: testMessages,
+        response_format: {
+          "type": "text"
+        },
+        verbosity: "low",
+        reasoning_effort: "minimal"
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('❌ Erreur GPT-5 Chat Completions:', response.status, errorData);
+      throw new Error(`Erreur API GPT-5: ${response.status} - ${errorData}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    console.log('✅ GPT-5 Chat Completions - Succès:', {
+      model: data.model,
+      finishReason: data.choices?.[0]?.finish_reason,
+      contentLength: content.length,
+      usage: data.usage
+    });
+
+    return content;
+
+  } catch (error: any) {
+    console.error('❌ Test GPT-5 Chat Completions échoué:', error);
+    throw new Error(`Test GPT-5 échoué: ${error.message}`);
+  }
+}
+
+// 🧪 NOUVEAU: Chat Completions GPT-5 avec streaming (paramètres du Playground)
+export async function sendMessageToGPT5ChatCompletions(
+  messages: ChatMessage[],
+  callbacks: StreamingCallbacks,
+  model: string = "gpt-5-nano",
+  abortController?: AbortController,
+  options?: { 
+    verbosity?: "low" | "high";
+    reasoning_effort?: "minimal" | "low" | "medium" | "high";
+    temperature?: number;
+  }
+): Promise<void> {
+  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  
+  if (!API_KEY) {
+    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
+    return;
+  }
+
+  console.log('🧪 GPT-5 Chat Completions Streaming:', { 
+    model, 
+    messagesCount: messages.length,
+    verbosity: options?.verbosity || "low",
+    reasoning_effort: options?.reasoning_effort || "minimal"
+  });
+
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let fullResponse = '';
+    let buffer = '';
+    
+    xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
+    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    
+    if (abortController) {
+      abortController.signal.addEventListener('abort', () => {
+        console.log('⏹️ Requête GPT-5 Chat Completions annulée');
+        xhr.abort();
+      });
+    }
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+        const newData = xhr.responseText.slice(buffer.length);
+        buffer = xhr.responseText;
+        
+        if (newData) {
+          processStreamChunk(newData, (content) => {
+            if (content) {
+              fullResponse += content;
+              callbacks.onChunk?.(content);
+            }
+          });
+        }
+      }
+      
+      if (xhr.readyState === XMLHttpRequest.DONE) {
+        if (xhr.status === 200) {
+          console.log(`✅ GPT-5 Chat Completions terminé: ${fullResponse.length} caractères`);
+          callbacks.onComplete?.(fullResponse);
+          resolve();
+        } else {
+          let message = `Erreur GPT-5 API: ${xhr.status}`;
+          try {
+            const body = xhr.responseText;
+            if (body) {
+              const parsed = JSON.parse(body);
+              const details = parsed?.error?.message || parsed?.message;
+              if (details) message = `${message} - ${details}`;
+            }
+          } catch {}
+          console.error(`❌ ${message}`);
+          callbacks.onError?.(new Error(message));
+          reject(new Error(message));
+        }
+      }
+    };
+
+    xhr.onerror = () => {
+      console.error('❌ Erreur réseau GPT-5 Chat Completions');
+      callbacks.onError?.(new Error('Erreur de connexion'));
+      reject(new Error('Erreur de connexion'));
+    };
+
+    xhr.onabort = () => {
+      console.log('⏹️ Requête GPT-5 annulée');
+      resolve();
+    };
+
+    // Payload avec les paramètres exacts du Playground
+    const requestBody = JSON.stringify({
+      model: model,
+      messages: messages,
+      response_format: {
+        "type": "text"
+      },
+      verbosity: options?.verbosity || "low",
+      reasoning_effort: options?.reasoning_effort || "minimal",
+      stream: true,
+      ...(typeof options?.temperature === 'number' ? { temperature: options.temperature } : {})
+    });
+
+    console.log('📤 Envoi requête GPT-5 Chat Completions...');
+    xhr.send(requestBody);
+  });
+}
+
+// NOUVEAU: Vision (analyse image) via Responses API en streaming
+export async function analyzeImageWithOpenAIStreaming(
+  base64Image: string,
+  promptText: string,
+  callbacks: StreamingCallbacks,
+  model: string = DEFAULT_GPT5_MODEL,
+  abortController?: AbortController,
+  options?: { temperature?: number; maxOutputTokens?: number }
+): Promise<void> {
+  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  if (!API_KEY) {
+    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
+    return;
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let fullResponse = '';
+    let buffer = '';
+
+    xhr.open('POST', 'https://api.openai.com/v1/responses');
+    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+
+    const ORG = process.env.EXPO_PUBLIC_OPENAI_ORG;
+    const PROJECT = process.env.EXPO_PUBLIC_OPENAI_PROJECT;
+    if (ORG) xhr.setRequestHeader('OpenAI-Organization', ORG);
+    if (PROJECT) xhr.setRequestHeader('OpenAI-Project', PROJECT);
+
+    if (abortController) {
+      abortController.signal.addEventListener('abort', () => {
+        xhr.abort();
+      });
+    }
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+        const newData = xhr.responseText.slice(buffer.length);
+        buffer = xhr.responseText;
+        if (newData) {
+          processStreamChunk(newData, (content) => {
+            fullResponse += content;
+            callbacks.onChunk?.(content);
+          });
+        }
+      }
+      if (xhr.readyState === XMLHttpRequest.DONE) {
+        if (xhr.status === 200) {
+          if (!fullResponse || fullResponse.length === 0) {
+            try {
+              const recovered = extractFinalOutputFromSSE(xhr.responseText);
+              if (recovered) fullResponse = recovered;
+            } catch {}
+          }
+          callbacks.onComplete?.(fullResponse);
+          resolve();
+        } else {
+          let message = `Erreur API: ${xhr.status}`;
+          try {
+            const body = xhr.responseText;
+            if (body) {
+              const parsed = JSON.parse(body);
+              const details = parsed?.error?.message || parsed?.message;
+              if (details) message = `${message} - ${details}`;
+            }
+          } catch {}
+          callbacks.onError?.(new Error(message));
+          reject(new Error(message));
+        }
+      }
+    };
+
+    xhr.onerror = () => {
+      callbacks.onError?.(new Error('Erreur de connexion'));
+      reject(new Error('Erreur de connexion'));
+    };
+
+    xhr.onabort = () => {
+      resolve();
+    };
+
+    const payload: any = {
+      model,
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: promptText },
+            // Utiliser image_url avec schéma data: pour compatibilité large
+            { type: 'input_image', image_url: `data:image/jpeg;base64,${base64Image}` },
+          ]
+        }
+      ],
+      max_output_tokens: options?.maxOutputTokens ?? 1000,
+      stream: true,
+      text: { format: { type: 'text' } },
+    };
+    if (typeof options?.temperature === 'number') payload.temperature = options.temperature;
+
+    try {
+      xhr.send(JSON.stringify(payload));
+    } catch (e) {
+      console.error('❌ Envoi payload vision échoué:', (e as any)?.message || e);
+      callbacks.onError?.(e as any);
+    }
+  });
+}
+
 // Service pour envoyer des messages à OpenAI (mode normal - pour fallback seulement)
 export async function sendMessageToOpenAI(
   messages: ChatMessage[],
@@ -95,7 +373,7 @@ export async function sendMessageToOpenAI(
   }
 }
 
-// NOUVEAU : Service de streaming ultra-rapide avec XMLHttpRequest
+// ⚡ Service de streaming ULTRA-RAPIDE avec optimisations réseau
 export async function sendMessageToOpenAIStreaming(
   messages: ChatMessage[],
   callbacks: StreamingCallbacks,
@@ -109,17 +387,28 @@ export async function sendMessageToOpenAIStreaming(
     return;
   }
 
-  console.log('🚀 Streaming instantané avec XMLHttpRequest (chat.completions legacy):', { model, messagesCount: messages.length });
+  // ⚡ Mesure de performance - TTFB (Time To First Byte)
+  const startTime = performance.now();
+  let firstChunkTime: number | null = null;
+  let firstByteTime: number | null = null;
+
+  console.log('🚀 Streaming OPTIMISÉ - Démarrage:', { model, messagesCount: messages.length });
 
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let fullResponse = '';
     let buffer = '';
+    let chunkCount = 0;
     
-    // Configuration de la requête
+    // ⚡ Configuration optimisée de la requête
     xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
     xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    // ⚡ Optimisations réseau
+    xhr.setRequestHeader('Connection', 'keep-alive');
+    xhr.setRequestHeader('Accept-Encoding', 'gzip, deflate');
+    xhr.setRequestHeader('Cache-Control', 'no-cache');
     
     // Gestion de l'abort
     if (abortController) {
@@ -129,30 +418,47 @@ export async function sendMessageToOpenAIStreaming(
       });
     }
 
-    // Traitement en temps réel des données reçues
+    // ⚡ Traitement INSTANTANÉ des données reçues
     xhr.onreadystatechange = () => {
+      // ⚡ TTFB - Premier byte reçu
+      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED && !firstByteTime) {
+        firstByteTime = performance.now();
+        console.log(`⚡ TTFB: ${Math.round(firstByteTime - startTime)}ms`);
+      }
+
       if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
-        // Récupérer seulement les nouvelles données
+        // ⚡ Récupérer IMMÉDIATEMENT les nouvelles données
         const newData = xhr.responseText.slice(buffer.length);
         buffer = xhr.responseText;
         
         if (newData) {
-          // ❌ SUPPRIMÉ : Log verbeux
-          // console.log('📦 Nouveau chunk reçu:', newData.length + ' caractères');
+          chunkCount++;
+          // ⚡ Premier chunk - temps critique
+          if (!firstChunkTime) {
+            firstChunkTime = performance.now();
+            console.log(`⚡ Premier mot: ${Math.round(firstChunkTime - startTime)}ms`);
+          }
+          
+          // ⚡ Traitement DIRECT sans délai
           processStreamChunk(newData, (content) => {
-            fullResponse += content;
-            callbacks.onChunk?.(content); // STREAMING INSTANTANÉ !
+            if (content) {
+              fullResponse += content;
+              // ⚡ APPEL IMMÉDIAT sans délai
+              callbacks.onChunk?.(content);
+            }
           });
         }
       }
       
       if (xhr.readyState === XMLHttpRequest.DONE) {
+        const totalTime = performance.now() - startTime;
+        
         if (xhr.status === 200) {
-          console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
+          console.log(`✅ Streaming terminé: ${fullResponse.length} caractères, ${chunkCount} chunks, ${Math.round(totalTime)}ms total`);
           callbacks.onComplete?.(fullResponse);
           resolve();
         } else {
-          console.error('❌ Erreur XHR:', xhr.status, xhr.statusText);
+          console.error(`❌ Erreur XHR ${xhr.status} après ${Math.round(totalTime)}ms:`, xhr.statusText);
           callbacks.onError?.(new Error(`Erreur API: ${xhr.status}`));
           reject(new Error(`Erreur API: ${xhr.status}`));
         }
@@ -160,7 +466,8 @@ export async function sendMessageToOpenAIStreaming(
     };
 
     xhr.onerror = () => {
-      console.error('❌ Erreur réseau XHR');
+      const errorTime = performance.now() - startTime;
+      console.error(`❌ Erreur réseau après ${Math.round(errorTime)}ms`);
       callbacks.onError?.(new Error('Erreur de connexion'));
       reject(new Error('Erreur de connexion'));
     };
@@ -170,16 +477,18 @@ export async function sendMessageToOpenAIStreaming(
       resolve(); // Pas d'erreur, juste annulé
     };
 
-    // Envoyer la requête
+    // ⚡ Corps de requête optimisé
     const requestBody = JSON.stringify({
       model: model,
       messages: messages,
-      max_tokens: 1000,
+      max_tokens: 2048,
       temperature: 0.7,
       stream: true, // CRUCIAL : Activer le streaming
+      // ⚡ Optimisations OpenAI
+      stream_options: { include_usage: false } // Réduire overhead
     });
 
-    console.log('📤 Envoi requête XHR streaming...');
+    console.log('📤 Envoi requête XHR optimisée...');
     xhr.send(requestBody);
   });
 }
@@ -407,7 +716,7 @@ export async function sendMessageToOpenAINonStreamingResponses(
           onError: () => {},
         },
         model,
-        reasoningEffort,
+        undefined,
         undefined,
         { maxOutputTokens: Math.min(1024, options?.maxOutputTokens ?? 1000) }
       );
@@ -447,7 +756,7 @@ export async function sendMessageToOpenAIStreamingResponses(
     return;
   }
 
-  console.log('🚀 Streaming Responses API:', { model, reasoningEffort, messagesCount: messages.length });
+  console.log('🚀 Streaming Responses API:', { model, messagesCount: messages.length });
 
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -469,11 +778,15 @@ export async function sendMessageToOpenAIStreamingResponses(
       xhr.setRequestHeader('OpenAI-Project', PROJECT);
     }
 
-    if (abortController) {
-      abortController.signal.addEventListener('abort', () => {
-        console.log('⏹️ Requête XHR annulée');
-        xhr.abort();
-      });
+    if (abortController && abortController.signal) {
+      // Certains environnements RN ne disposent pas d'addEventListener sur le signal
+      try {
+        // @ts-ignore
+        abortController.signal.addEventListener?.('abort', () => {
+          console.log('⏹️ Requête XHR annulée');
+          xhr.abort();
+        });
+      } catch {}
     }
 
     xhr.onreadystatechange = () => {
@@ -535,7 +848,6 @@ export async function sendMessageToOpenAIStreamingResponses(
 
     const payload: any = {
       model,
-      // Mapper messages -> input (Responses API)
       input: messages.map((m) => ({
         role: m.role,
         content: [
@@ -543,7 +855,6 @@ export async function sendMessageToOpenAIStreamingResponses(
         ]
       })),
       max_output_tokens: options?.maxOutputTokens ?? 1000,
-      reasoning: { effort: reasoningEffort },
       stream: true,
       text: { format: { type: 'text' } },
     };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { 
   View, 
   Text, 
@@ -8,7 +8,9 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Keyboard,
+  ActionSheetIOS
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,10 +18,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { 
-  sendMessageToOpenAIStreaming,
-  type StreamingCallbacks
+  sendMessageToOpenAIStreamingResponses,
+  type StreamingCallbacks,
+  DEFAULT_GPT5_MODEL
 } from '../../services/openaiService';
-import { SendIcon, WidgetsIcon } from '../../components/icons/SvgIcons';
+import { SendIcon, WidgetsIcon, ImageIcon } from '../../components/icons/SvgIcons';
+import * as ImagePicker from 'expo-image-picker';
+import { analyzeImageWithOpenAIStreaming } from '../../services/openaiService';
 
 interface Message {
   id: string;
@@ -46,6 +51,13 @@ export default function AssistantCuisine() {
   const textInputRef = useRef<TextInput>(null);
   const streamingBufferRef = useRef<string>('');
   const streamingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Refs pour le système machine à écrire EXACT du ChatIA
+  const typewriterTimerRef = useRef<number | null>(null);
+  const typewriterQueueRef = useRef<string>('');
+  const streamingTextRef = useRef<string>('');
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
   // Générer message d'accueil initial
   const getWelcomeMessage = useCallback((): Message => {
@@ -78,55 +90,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
 
   // Prompt spécialisé cuisine
   const getSystemPrompt = (): string => {
-    return `Tu es un chef cuisinier expert et pédagogue, spécialisé dans l'accompagnement culinaire personnalisé.
-
-**MISSION :** Aider l'utilisateur dans tous ses besoins culinaires avec expertise et créativité.
-
-**DOMAINES D'EXPERTISE :**
-- Création de recettes originales et adaptées
-- Calculs de proportions et conversions d'unités
-- Techniques de cuisson et astuces professionnelles
-- Substitutions d'ingrédients (allergies, régimes, disponibilité)
-- Optimisation nutritionnelle et équilibrage des saveurs
-- Cuisines du monde et spécialités régionales
-- Présentation et dressage des plats
-
-**STYLE DE RÉPONSE :**
-- Toujours inclure des émojis culinaires pertinents 🍳🥘🍅
-- Structurer clairement : ingrédients, étapes, astuces
-- Donner des temps de préparation/cuisson précis
-- Proposer des variantes et alternatives
-- Inclure des conseils pratiques et astuces de chef
-- Adapter selon le niveau culinaire apparent
-
-**FORMAT POUR LES RECETTES :**
-🍽️ **[Nom de la recette]**
-
-⏱️ **Temps :** Préparation + Cuisson
-👥 **Portions :** X personnes
-
-🛒 **Ingrédients :**
-• [Quantité précise] [Ingrédient] 
-• ...
-
-🍳 **Étapes :**
-1. [Instruction détaillée]
-2. ...
-
-💡 **Astuces du chef :**
-• [Conseil pratique]
-
-🔄 **Variantes :**
-• [Alternative possible]
-
-**RÈGLES :**
-- Toujours donner des quantités précises
-- Mentionner les allergènes potentiels
-- Proposer des substitutions végétariennes/véganes si pertinent
-- Adapter le vocabulaire technique au niveau de l'utilisateur
-- Encourager la créativité et l'expérimentation
-
-Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
+    return 'Tu es un chef cuisinier expert. Aide avec les recettes et conseils culinaires. Utilise des émojis 🍳';
   };
 
   // Gestion du nouveau chat avec confirmation
@@ -169,6 +133,90 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
     }
   }, [conversationStarted, messages.length, getWelcomeMessage]);
 
+  // COPIE EXACTE du updateStreamingMessage du ChatIA qui fonctionne
+  const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
+    // Alimente une file et anime au fil de l'eau (machine à écrire)
+    typewriterQueueRef.current += newChunk;
+
+    const tick = () => {
+      // Vitesse adaptative optimisée pour affichage plus rapide
+      const queueLen = typewriterQueueRef.current.length;
+      const sliceSize = queueLen > 200 ? 20 : queueLen > 80 ? 15 : queueLen > 20 ? 8 : 3;
+      const slice = typewriterQueueRef.current.slice(0, sliceSize);
+      typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
+
+      streamingTextRef.current += slice;
+      
+      // Debounce léger pour optimiser les re-renders
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+      updateTimeoutRef.current = setTimeout(() => {
+        setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
+      }, 10) as unknown as number;
+
+      if (typewriterQueueRef.current.length === 0) {
+        // Arrêter le timer si plus rien à écrire
+        if (typewriterTimerRef.current) {
+          clearInterval(typewriterTimerRef.current);
+          typewriterTimerRef.current = null;
+        }
+      }
+    };
+
+    // Démarrer le timer si nécessaire - Optimisé pour 30fps (meilleure perf)
+    if (!typewriterTimerRef.current) {
+      typewriterTimerRef.current = setInterval(tick, 33); // ~30fps pour économiser les ressources
+    }
+  }, []);
+
+  // COPIE EXACTE du finalizeStreamingMessage du ChatIA
+  const finalizeStreamingMessage = useCallback((messageId: string, fullText: string) => {
+    // Annuler tout timeout en cours
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+    
+    // Faire la mise à jour finale
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: fullText, streaming: false }
+          : msg
+      )
+    );
+    
+    // Réinitialiser la ref
+    streamingTextRef.current = '';
+    typewriterQueueRef.current = '';
+  }, []);
+
+  // COPIE EXACTE du handleStreamingError du ChatIA
+  const handleStreamingError = useCallback((messageId: string, errorMessage: string) => {
+    // Annuler tout timeout en cours
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    
+    // Remplacer le message par le message d'erreur
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: errorMessage, streaming: false }
+          : msg
+      )
+    );
+    
+    // Réinitialiser la ref
+    streamingTextRef.current = '';
+  }, []);
+
   // Fonction pour envoyer un message (identique à correction)
   const sendMessage = async () => {
     if (!inputText.trim() || isAITyping) return;
@@ -180,7 +228,8 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
       timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    const assistantMessageId = `assistant-${Date.now()}`;
+    // Créer un message assistant vide pour le streaming - EXACT ChatIA
+    const assistantMessageId = (Date.now() + 1).toString();
     const assistantMessage: Message = {
       id: assistantMessageId,
       text: '',
@@ -190,57 +239,78 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInputText('');
+    
+    // Fermer le clavier immédiatement après l'envoi (comme ChatIA)
+    Keyboard.dismiss();
+    textInputRef.current?.blur();
+    
     setIsAITyping(true);
+    setStreamingMessageId(assistantMessageId);
     setConversationStarted(true);
 
-    // Préparer l'AbortController
-    abortControllerRef.current = new AbortController();
-
-    // Nettoyer le buffer de streaming
-    streamingBufferRef.current = '';
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
+    // Réinitialiser la ref de streaming pour ce nouveau message - EXACT ChatIA
+    streamingTextRef.current = '';
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
     }
 
+    // Affichage immédiat d'un indicateur de démarrage pour TTFR ultra-rapide
+    setMessages(prev => prev.map(msg => 
+      msg.id === assistantMessageId 
+        ? { ...msg, text: '•••', streaming: true }
+        : msg
+    ));
+
+    // Animation des points d'attente pour impression de réactivité
+    let dotCount = 3;
+    const dotTimer = setInterval(() => {
+      dotCount = dotCount === 3 ? 1 : dotCount + 1;
+      const dots = '•'.repeat(dotCount);
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMessageId && msg.text.startsWith('•')
+          ? { ...msg, text: dots }
+          : msg
+      ));
+    }, 500); // Ralenti pour économiser les ressources
+
+    // Créer AbortController pour pouvoir arrêter le streaming
+    abortControllerRef.current = new AbortController();
+
+    // Enhanced onChunk qui nettoie l'animation et lance le vrai streaming
+    const enhancedOnChunk = (chunk: string) => {
+      clearInterval(dotTimer);
+      updateStreamingMessage(assistantMessageId, chunk);
+    };
+
     const streamingCallbacks: StreamingCallbacks = {
-      onStart: () => {
-        setIsAITyping(true);
-      },
-      onChunk: (chunk: string) => {
-        // Utiliser le système de buffer optimisé (12ms comme les autres assistants)
-        streamingBufferRef.current += chunk;
-        if (streamingTimerRef.current) {
-          clearTimeout(streamingTimerRef.current);
-        }
-        streamingTimerRef.current = setTimeout(() => {
-          const buffer = streamingBufferRef.current;
-          streamingBufferRef.current = '';
-          setMessages(prev =>
-            prev.map(msg =>
-              msg.id === assistantMessageId
-                ? { ...msg, text: msg.text + buffer }
-                : msg
-            )
-          );
-        }, 12); // Vitesse d'écriture optimisée
-      },
+      onChunk: enhancedOnChunk,
       onComplete: (fullResponse: string) => {
-        // Finaliser le message avec le texte complet
+        console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
+        clearInterval(dotTimer); // Nettoyer l'animation à la fin
+        
+        // Finaliser le message avec le texte complet - EXACT du ChatIA
         finalizeStreamingMessage(assistantMessageId, fullResponse);
+        
         setIsAITyping(false);
+        setStreamingMessageId(null);
         abortControllerRef.current = null;
       },
       onError: (error: Error) => {
-        console.error('Erreur streaming:', error);
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === assistantMessageId
-              ? { ...msg, text: 'Désolé, une erreur est survenue. Veuillez réessayer.' }
-              : msg
-          )
-        );
+        console.error('❌ Erreur streaming:', error);
+        clearInterval(dotTimer); // Nettoyer l'animation en cas d'erreur
+        
+        // Vérifier si c'est un arrêt volontaire - EXACT du ChatIA
+        if (error.message === 'RESPONSE_STOPPED') {
+          console.log('⏹️ Génération arrêtée par l\'utilisateur');
+          return;
+        }
+        
+        // Gérer l'erreur avec la fonction optimisée
+        handleStreamingError(assistantMessageId, 'Désolé, une erreur est survenue. Veuillez réessayer.');
+        
         setIsAITyping(false);
+        setStreamingMessageId(null);
         abortControllerRef.current = null;
       }
     };
@@ -248,12 +318,16 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
     try {
       const systemPrompt = getSystemPrompt();
       
-      await sendMessageToOpenAIStreaming(
-        userMessage.text,
+      await sendMessageToOpenAIStreamingResponses(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage.text }
+        ],
         streamingCallbacks,
-        'gpt-4o-mini', // Modèle rapide pour TTFT optimisé
-        systemPrompt,
-        abortControllerRef.current.signal
+        DEFAULT_GPT5_MODEL,
+        'low', // Reasoning effort pour vitesse maximale
+        abortControllerRef.current,
+        { maxOutputTokens: 2048 }
       );
     } catch (error) {
       console.error('Erreur envoi message:', error);
@@ -261,24 +335,82 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
     }
   };
 
-  // Finaliser le message de streaming
-  const finalizeStreamingMessage = (messageId: string, finalText: string) => {
-    // Nettoyer les timers
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
+  const pickAndSendImage = useCallback(async () => {
+    const runWithBase64 = async (base64: string) => {
+      const assistantMessageId = `assistant-${Date.now()}`;
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        text: '',
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, { id: `user-${Date.now()}`, text: '[Image envoyée] Analyse en cours…', isUser: true, timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }, assistantMessage]);
+
+      abortControllerRef.current = new AbortController();
+      streamingBufferRef.current = '';
+      if (streamingTimerRef.current) { clearTimeout(streamingTimerRef.current); streamingTimerRef.current = null; }
+
+      await analyzeImageWithOpenAIStreaming(
+        base64,
+        "Voici une photo d'ingrédients. Décris-les et propose 3 recettes simples et 2 recettes créatives possibles avec instructions et quantités.",
+        {
+          onChunk: (chunk: string) => {
+            streamingBufferRef.current += chunk;
+            if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
+            streamingTimerRef.current = setTimeout(() => {
+              const buffer = streamingBufferRef.current; streamingBufferRef.current = '';
+              setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: msg.text + buffer } : msg));
+            }, 12);
+          },
+          onComplete: (full: string) => {
+            if (streamingTimerRef.current) { clearTimeout(streamingTimerRef.current); streamingTimerRef.current = null; }
+            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: full } : msg));
+          },
+          onError: () => {
+            console.error('❌ Vision onError (cuisine): image non analysée');
+            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: 'Impossible d’analyser l’image.' } : msg));
+          }
+        },
+        DEFAULT_GPT5_MODEL,
+        abortControllerRef.current
+      );
+    };
+
+    try {
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Annuler', 'Bibliothèque', 'Caméra'],
+            cancelButtonIndex: 0,
+          },
+          async (buttonIndex) => {
+            if (buttonIndex === 1) {
+              setTimeout(async () => {
+                const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (libPerm.status !== 'granted') { Alert.alert('Permission requise', "Autorisez l'accès aux photos."); return; }
+                const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
+                if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+              }, 150);
+            } else if (buttonIndex === 2) {
+              setTimeout(async () => {
+                const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+                if (camPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès à la caméra.'); return; }
+                const result = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: true });
+                if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+              }, 150);
+            }
+          }
+        );
+      } else {
+        const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (libPerm.status !== 'granted') { Alert.alert('Permission requise', "Autorisez l'accès aux photos."); return; }
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: [ImagePicker.MediaType.IMAGE], quality: 0.85, base64: true });
+        if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+      }
+    } catch (e) {
+      Alert.alert('Erreur', 'Échec de sélection de la photo.');
     }
-    streamingBufferRef.current = '';
-    
-    // Assurer que le texte final est affiché
-    setMessages(prev =>
-      prev.map(msg =>
-        msg.id === messageId
-          ? { ...msg, text: finalText }
-          : msg
-      )
-    );
-  };
+  }, []);
 
   // Arrêter la génération
   const stopGeneration = () => {
@@ -386,7 +518,7 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
         <KeyboardAvoidingView 
           style={[styles.container, { backgroundColor: theme.backgrounds.secondary }]}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
           {/* Liste des messages */}
           <FlatList
@@ -411,6 +543,13 @@ Sois passionné, inspirant et pratique dans tes conseils culinaires !`;
             }
           ]}>
             <View style={styles.inputRow}>
+              {/* Coachmark retiré à la demande */}
+              <TouchableOpacity 
+                onPress={pickAndSendImage}
+                style={[styles.sendButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}
+              >
+                <ImageIcon size={20} color={isDark ? '#ffffff' : '#111827'} />
+              </TouchableOpacity>
               <TextInput
                 ref={textInputRef}
                 style={[

@@ -12,6 +12,8 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -19,7 +21,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isDesktop = screenWidth > 768;
 
 function LoginScreen() {
-  const { signInWithEmailPassword, signInWithGoogle, signInWithTestAccount } = useAuth();
+  const { signInWithEmailPassword, signInWithGoogle, signInWithTestAccount, signInWithApple } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,6 +52,17 @@ function LoginScreen() {
       await signInWithGoogle();
     } catch (error: any) {
       Alert.alert('Erreur', 'Erreur lors de la connexion Google');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    setLoading(true);
+    try {
+      await signInWithApple();
+    } catch (error: any) {
+      Alert.alert('Erreur', 'Erreur lors de la connexion Apple');
     } finally {
       setLoading(false);
     }
@@ -140,6 +153,19 @@ function LoginScreen() {
             >
               <Text style={styles.googleButtonText}>Se connecter avec Google</Text>
             </TouchableOpacity>
+
+            {/* Apple Login Button (iOS uniquement) */}
+            {Platform.OS === 'ios' ? (
+              <View style={{ width: '100%', marginTop: 12 }}>
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                  cornerRadius={12}
+                  style={{ width: '100%', height: 48 }}
+                  onPress={handleAppleLogin}
+                />
+              </View>
+            ) : null}
 
 
             {/* Footer Links */}

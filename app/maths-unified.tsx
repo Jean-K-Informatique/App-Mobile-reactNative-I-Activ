@@ -229,7 +229,7 @@ Réponds en français, sois précis et pédagogue !`;
       
       await sendMessageToOpenAIStreaming(
         contextMessages,
-        'gpt-4o-mini',
+        DEFAULT_GPT5_MODEL,
         {
           onStart: () => setIsAITyping(true),
           onChunk: (chunk: string) => {

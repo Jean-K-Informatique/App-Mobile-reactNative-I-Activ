@@ -1,9 +1,12 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Constants from 'expo-constants';
-import { User, GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { User, GoogleAuthProvider, OAuthProvider, signInWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri } from 'expo-auth-session';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
+import * as Random from 'expo-random';
 import { router } from 'expo-router';
 import { auth } from '../services/firebaseConfig';
 
@@ -14,6 +17,7 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signInWithTestAccount: () => Promise<void>;
   signInWithEmailPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -170,6 +174,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signInWithApple = async () => {
+    try {
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) {
+        throw new Error('Apple Sign-In non disponible sur cet appareil');
+      }
+
+      // Nonce aléatoire sécurisé (hex) et SHA-256 pour la requête Apple
+      const randomBytes = await Random.getRandomBytesAsync(32);
+      const rawNonce = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+
+      const appleRes = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      const { identityToken, fullName } = appleRes as { identityToken?: string; fullName?: { givenName?: string; familyName?: string } };
+      if (!identityToken) {
+        throw new Error('identityToken manquant depuis Apple');
+      }
+
+      const provider = new OAuthProvider('apple.com');
+      const credential = provider.credential({ idToken: identityToken, rawNonce });
+      const userCredential = await signInWithCredential(auth, credential);
+
+      // Mettre à jour le displayName au premier login si transmis
+      const given = fullName?.givenName ?? '';
+      const family = fullName?.familyName ?? '';
+      const displayName = `${given} ${family}`.trim();
+      if (displayName && auth.currentUser) {
+        try {
+          await updateProfile(auth.currentUser, { displayName });
+        } catch {}
+      }
+
+      console.log('Connexion Apple → Firebase réussie ! UID:', userCredential.user.uid);
+      router.replace('/main');
+    } catch (error: any) {
+      if (error?.code === 'ERR_CANCELED') {
+        console.log('Connexion Apple annulée par l’utilisateur');
+        return;
+      }
+      console.error('Erreur Apple Sign-In:', error);
+      throw error;
+    }
+  };
+
   const signInWithTestAccount = async () => {
     try {
       console.log('Connexion avec compte test...');
@@ -212,6 +267,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     isAuthenticated: !!user,
     signInWithGoogle,
+    signInWithApple,
     signInWithTestAccount,
     signInWithEmailPassword,
     signOut,

@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -7,6 +7,7 @@ import { ScreenContainer, useSuckNavigator } from '../components/ScreenTransitio
 import { useTheme } from '../contexts/ThemeContext';
 import { UserIcon } from '../components/icons/SvgIcons';
 import ProfileModal from '../components/ui/ProfileModal';
+import { testGPT5ChatCompletions, sendMessageToGPT5ChatCompletions, ChatMessage } from '../services/openaiService';
 
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -111,6 +112,29 @@ function WidgetsScreen() {
   const { theme, isDark } = useTheme();
   const suckTo = useSuckNavigator();
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isTestingGPT5, setIsTestingGPT5] = useState(false);
+
+  // Test GPT-5 Chat Completions
+  const handleTestGPT5 = async () => {
+    console.log('🔥 TEST GPT-5 CLIQUÉ depuis widgets !');
+    setIsTestingGPT5(true);
+    try {
+      const result = await testGPT5ChatCompletions();
+      Alert.alert(
+        '✅ GPT-5 Test Réussi !', 
+        `Réponse: ${result.slice(0, 100)}${result.length > 100 ? '...' : ''}`,
+        [{ text: 'OK' }]
+      );
+    } catch (error: any) {
+      Alert.alert(
+        '❌ Test GPT-5 Échoué', 
+        `Erreur: ${error.message}`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsTestingGPT5(false);
+    }
+  };
 
   const renderTile = useCallback((tile: Tile) => (
     <TileComponent key={tile.id} tile={tile} onPress={suckTo} />
@@ -193,12 +217,21 @@ function WidgetsScreen() {
           
           <TouchableOpacity 
             style={styles.menuButton}
-            onPress={() => {/* TODO: Provisoire 2 */}}
+            onPress={handleTestGPT5}
             activeOpacity={0.7}
+            disabled={isTestingGPT5}
           >
-            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>⚙️</Text>
-            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
-              Options
+            <Text style={[styles.menuIcon, { 
+              color: isTestingGPT5 ? '#999' : '#007AFF',
+              opacity: isTestingGPT5 ? 0.6 : 1 
+            }]}>
+              🧪
+            </Text>
+            <Text style={[styles.menuButtonText, { 
+              color: isTestingGPT5 ? '#999' : '#007AFF',
+              opacity: isTestingGPT5 ? 0.6 : 1 
+            }]}>
+              {isTestingGPT5 ? 'Test...' : 'GPT-5'}
             </Text>
           </TouchableOpacity>
         </View>

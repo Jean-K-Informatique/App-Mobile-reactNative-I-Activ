@@ -8,7 +8,8 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Keyboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,8 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { 
-  sendMessageToOpenAIStreaming,
-  type StreamingCallbacks
+  sendMessageToOpenAIStreamingResponses,
+  type StreamingCallbacks,
+  DEFAULT_GPT5_MODEL
 } from '../../services/openaiService';
 import { SendIcon, WidgetsIcon } from '../../components/icons/SvgIcons';
 
@@ -49,6 +51,10 @@ export default function AssistantResume() {
   const textInputRef = useRef<TextInput>(null);
   const streamingBufferRef = useRef<string>('');
   const streamingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Refs pour le système machine à écrire ultra-optimisé (comme ChatIA)
+  const typewriterTimerRef = useRef<number | null>(null);
+  const typewriterQueueRef = useRef<string>('');
 
   // Générer message d'accueil initial
   const getWelcomeMessage = useCallback((): Message => {
@@ -193,6 +199,11 @@ Sois ultra-synthétique, percutant et précis.`;
 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInputText('');
+    
+    // Fermer le clavier immédiatement après l'envoi (comme ChatIA)
+    Keyboard.dismiss();
+    textInputRef.current?.blur();
+    
     setIsAITyping(true);
     setConversationStarted(true);
 
@@ -206,30 +217,26 @@ Sois ultra-synthétique, percutant et précis.`;
       streamingTimerRef.current = null;
     }
 
+    // STREAMING ULTRA-SIMPLE ET INSTANTANÉ
+    const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
+      // AFFICHAGE IMMÉDIAT - pas de queue, pas de délai
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: (msg.text || '') + newChunk }
+          : msg
+      ));
+    }, []);
+
     const streamingCallbacks: StreamingCallbacks = {
       onStart: () => {
         setIsAITyping(true);
       },
       onChunk: (chunk: string) => {
-        // Utiliser le système de buffer optimisé (12ms comme les autres assistants)
-        streamingBufferRef.current += chunk;
-        if (streamingTimerRef.current) {
-          clearTimeout(streamingTimerRef.current);
-        }
-        streamingTimerRef.current = setTimeout(() => {
-          const buffer = streamingBufferRef.current;
-          streamingBufferRef.current = '';
-          setMessages(prev =>
-            prev.map(msg =>
-              msg.id === assistantMessageId
-                ? { ...msg, text: msg.text + buffer }
-                : msg
-            )
-          );
-        }, 12); // Vitesse d'écriture optimisée
+        // AFFICHAGE IMMÉDIAT - zéro délai
+        updateStreamingMessage(assistantMessageId, chunk);
       },
       onComplete: (fullResponse: string) => {
-        // Finaliser le message avec le texte complet
+        console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
         finalizeStreamingMessage(assistantMessageId, fullResponse);
         setIsAITyping(false);
         abortControllerRef.current = null;
@@ -251,12 +258,16 @@ Sois ultra-synthétique, percutant et précis.`;
     try {
       const systemPrompt = getSystemPrompt(resumeMode);
       
-      await sendMessageToOpenAIStreaming(
-        userMessage.text,
+      await sendMessageToOpenAIStreamingResponses(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage.text }
+        ],
         streamingCallbacks,
-        'gpt-4o-mini', // Modèle rapide pour TTFT optimisé
-        systemPrompt,
-        abortControllerRef.current.signal
+        DEFAULT_GPT5_MODEL,
+        'low', // Reasoning effort pour vitesse maximale
+        abortControllerRef.current,
+        { maxOutputTokens: 2048 }
       );
     } catch (error) {
       console.error('Erreur envoi message:', error);
@@ -264,24 +275,32 @@ Sois ultra-synthétique, percutant et précis.`;
     }
   };
 
-  // Finaliser le message de streaming
-  const finalizeStreamingMessage = (messageId: string, finalText: string) => {
-    // Nettoyer les timers
+  // Finaliser le message de streaming (identique à ChatIA)
+  const finalizeStreamingMessage = useCallback((messageId: string, finalText: string) => {
+    // Annuler tout timeout en cours
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
     if (streamingTimerRef.current) {
       clearTimeout(streamingTimerRef.current);
       streamingTimerRef.current = null;
     }
-    streamingBufferRef.current = '';
     
-    // Assurer que le texte final est affiché
-    setMessages(prev =>
-      prev.map(msg =>
-        msg.id === messageId
+    // Faire la mise à jour finale
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
           ? { ...msg, text: finalText }
           : msg
       )
     );
-  };
+    
+    // Réinitialiser les refs
+    typewriterQueueRef.current = '';
+    streamingBufferRef.current = '';
+    setIsAITyping(false);
+  }, []);
 
   // Arrêter la génération
   const stopGeneration = () => {
@@ -423,7 +442,7 @@ Sois ultra-synthétique, percutant et précis.`;
         <KeyboardAvoidingView 
           style={[styles.container, { backgroundColor: theme.backgrounds.secondary }]}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
           {/* Liste des messages */}
           <FlatList

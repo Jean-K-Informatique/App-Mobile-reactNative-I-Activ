@@ -22,7 +22,7 @@ import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransi
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
-  sendMessageToOpenAIStreaming,
+  sendMessageToOpenAIStreamingResponses,
   DEFAULT_GPT5_MODEL,
   type ChatMessage, 
   type StreamingCallbacks
@@ -92,6 +92,10 @@ export default function AssistantTraduction() {
   const streamingBufferRef = useRef<string>('');
   const streamingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Refs pour le système machine à écrire ultra-optimisé (comme ChatIA)
+  const typewriterTimerRef = useRef<number | null>(null);
+  const typewriterQueueRef = useRef<string>('');
+
   // Générer message d'accueil initial
   const getWelcomeMessage = useCallback((): Message => {
     const welcomeText = `👋 Bonjour ! Je suis votre assistant de **traduction professionnelle**.
@@ -133,8 +137,29 @@ OBJECTIF: Livrer une traduction indistinguable d'un texte écrit nativement.
 STYLE DE RÉPONSE: Réponds de manière concise et directe pour une traduction rapide.`;
   };
 
-  // Finaliser le message de streaming (identique à correction)
+  // STREAMING ULTRA-SIMPLE ET INSTANTANÉ
+  const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
+    // AFFICHAGE IMMÉDIAT - pas de queue, pas de délai
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, text: (msg.text || '') + newChunk }
+        : msg
+    ));
+  }, []);
+
+  // Finaliser le message de streaming (SIMPLE ET DIRECT)
   const finalizeStreamingMessage = useCallback((messageId: string, finalText: string) => {
+    // Nettoyer tous les timers
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+    
+    // Mise à jour finale immédiate
     setMessages(prev => 
       prev.map(msg => 
         msg.id === messageId 
@@ -142,18 +167,10 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une traduction r
           : msg
       )
     );
+    
+    // Reset immédiat
     setIsAITyping(false);
     setStreamingMessageId(null);
-    streamingTextRef.current = '';
-    streamingBufferRef.current = '';
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-      updateTimeoutRef.current = null;
-    }
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
-    }
     abortControllerRef.current = null;
   }, []);
 
@@ -222,7 +239,7 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une traduction r
     const currentInput = inputText.trim();
     setInputText('');
     
-    // Fermer le clavier immédiatement après l'envoi
+    // Fermer le clavier immédiatement après l'envoi (comme ChatIA)
     Keyboard.dismiss();
     textInputRef.current?.blur();
 
@@ -263,7 +280,7 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une traduction r
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('🚀 Démarrage streaming traduction ultra-rapide avec gpt-4o-mini');
+      console.log('🚀 Démarrage streaming traduction via Responses API (gpt-5-nano)');
 
       // Préparer l'historique pour OpenAI
       const openAIMessages: ChatMessage[] = [
@@ -285,77 +302,38 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une traduction r
         }
       ];
 
-      // Callbacks de streaming (OPTIMISÉ pour vitesse d'écriture)
+      // Callbacks de streaming (ULTRA-SIMPLE ET RAPIDE)
       const streamingCallbacks: StreamingCallbacks = {
         onChunk: (chunk: string) => {
-          // ⚡ STREAMING OPTIMISÉ : Accumulation et affichage par petits groupes
-          streamingBufferRef.current += chunk;
-          
-          // Effacer le timer précédent
-          if (streamingTimerRef.current) {
-            clearTimeout(streamingTimerRef.current);
-          }
-          
-          // Affichage plus fluide toutes les 12ms avec buffer (vitesse doublée)
-          streamingTimerRef.current = setTimeout(() => {
-            const buffer = streamingBufferRef.current;
-            streamingBufferRef.current = '';
-            
-            setMessages(prev => 
-              prev.map(msg => 
-                msg.id === assistantMessageId 
-                  ? { ...msg, text: msg.text + buffer }
-                  : msg
-              )
-            );
-          }, 12);
+          // AFFICHAGE IMMÉDIAT - zéro délai
+          updateStreamingMessage(assistantMessageId, chunk);
         },
         onComplete: (fullResponse: string) => {
-          // Nettoyer les timers et afficher le texte final immédiatement
-          if (streamingTimerRef.current) {
-            clearTimeout(streamingTimerRef.current);
-            streamingTimerRef.current = null;
-          }
-          
-          // Afficher immédiatement le buffer restant s'il y en a
-          if (streamingBufferRef.current) {
-            setMessages(prev => 
-              prev.map(msg => 
-                msg.id === assistantMessageId 
-                  ? { ...msg, text: msg.text + streamingBufferRef.current }
-                  : msg
-              )
-            );
-            streamingBufferRef.current = '';
-          }
-          
-          setTimeout(() => {
-            finalizeStreamingMessage(assistantMessageId, fullResponse);
-          }, 10);
+          console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
+          finalizeStreamingMessage(assistantMessageId, fullResponse);
         },
         onError: (error: Error) => {
           console.error('❌ Erreur streaming:', error);
           
-          // Nettoyer les timers
-          if (streamingTimerRef.current) {
-            clearTimeout(streamingTimerRef.current);
-            streamingTimerRef.current = null;
+          // Vérifier si c'est un arrêt volontaire
+          if (error.message === 'RESPONSE_STOPPED') {
+            console.log('⏹️ Génération arrêtée par l\'utilisateur');
+            return;
           }
-          streamingBufferRef.current = '';
           
-          const errorMessage = error.message?.includes('RESPONSE_STOPPED') 
-            ? '⏹ Génération interrompue'
-            : '❌ Désolé, une erreur est survenue. Veuillez réessayer.';
+          const errorMessage = 'Désolé, une erreur est survenue. Veuillez réessayer.';
           finalizeStreamingMessage(assistantMessageId, errorMessage);
         }
       };
 
-      // Démarrer le streaming ultra-rapide (API directe comme le chat IA)
-      await sendMessageToOpenAIStreaming(
+      // Démarrer le streaming ultra-optimisé via Responses API
+      await sendMessageToOpenAIStreamingResponses(
         openAIMessages,
         streamingCallbacks,
-        'gpt-4o-mini', // Modèle plus rapide pour démarrage instantané
-        abortControllerRef.current
+        DEFAULT_GPT5_MODEL,
+        'low', // Reasoning effort pour vitesse maximale
+        abortControllerRef.current,
+        { maxOutputTokens: 2048 }
       );
 
     } catch (error: any) {
