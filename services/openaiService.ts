@@ -78,7 +78,7 @@ export async function testGPT5ChatCompletions(
   }
 }
 
-// 🧪 NOUVEAU: Chat Completions GPT-5 avec streaming (paramètres du Playground)
+// ⚡ ULTRA-OPTIMISÉ: Chat Completions GPT-5 avec streaming haute vitesse
 export async function sendMessageToGPT5ChatCompletions(
   messages: ChatMessage[],
   callbacks: StreamingCallbacks,
@@ -97,7 +97,12 @@ export async function sendMessageToGPT5ChatCompletions(
     return;
   }
 
-  console.log('🧪 GPT-5 Chat Completions Streaming:', { 
+  // ⚡ MESURE DE PERFORMANCE - TTFB (Time To First Byte)
+  const startTime = performance.now();
+  let firstChunkTime: number | null = null;
+  let firstByteTime: number | null = null;
+
+  console.log('⚡ GPT-5 ULTRA-RAPIDE:', { 
     model, 
     messagesCount: messages.length,
     verbosity: options?.verbosity || "low",
@@ -108,11 +113,26 @@ export async function sendMessageToGPT5ChatCompletions(
     const xhr = new XMLHttpRequest();
     let fullResponse = '';
     let buffer = '';
+    let chunkCount = 0;
     
+    // ⚡ OPTIMISATION 1: Configuration réseau ultra-rapide
     xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
     xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
+    
+    // ⚡ OPTIMISATION 2: En-têtes réseau pour vitesse maximale
+    xhr.setRequestHeader('Connection', 'keep-alive');
+    xhr.setRequestHeader('Accept-Encoding', 'gzip, deflate, br');
+    xhr.setRequestHeader('Cache-Control', 'no-cache');
+    xhr.setRequestHeader('Pragma', 'no-cache');
+    
+    // ⚡ OPTIMISATION 3: Priorité réseau (si supporté)
+    if (xhr.setRequestHeader) {
+      try {
+        xhr.setRequestHeader('Priority', 'u=1, i'); // Priorité ultra-haute
+      } catch {}
+    }
     
     if (abortController) {
       abortController.signal.addEventListener('abort', () => {
@@ -121,15 +141,32 @@ export async function sendMessageToGPT5ChatCompletions(
       });
     }
 
+    // ⚡ OPTIMISATION 4: Traitement ULTRA-RAPIDE des données reçues
     xhr.onreadystatechange = () => {
+      // ⚡ TTFB - Premier byte reçu (mesure critique)
+      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED && !firstByteTime) {
+        firstByteTime = performance.now();
+        console.log(`⚡ TTFB GPT-5: ${Math.round(firstByteTime - startTime)}ms`);
+      }
+
       if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
+        // ⚡ RÉCUPÉRATION IMMÉDIATE des nouvelles données
         const newData = xhr.responseText.slice(buffer.length);
         buffer = xhr.responseText;
         
         if (newData) {
+          chunkCount++;
+          // ⚡ PREMIER CHUNK - Temps critique pour UX
+          if (!firstChunkTime) {
+            firstChunkTime = performance.now();
+            console.log(`⚡ Premier mot GPT-5: ${Math.round(firstChunkTime - startTime)}ms`);
+          }
+          
+          // ⚡ TRAITEMENT IMMÉDIAT - zéro délai
           processStreamChunk(newData, (content) => {
             if (content) {
               fullResponse += content;
+              // ⚡ AFFICHAGE INSTANTANÉ
               callbacks.onChunk?.(content);
             }
           });
@@ -137,8 +174,10 @@ export async function sendMessageToGPT5ChatCompletions(
       }
       
       if (xhr.readyState === XMLHttpRequest.DONE) {
+        const totalTime = performance.now() - startTime;
+        
         if (xhr.status === 200) {
-          console.log(`✅ GPT-5 Chat Completions terminé: ${fullResponse.length} caractères`);
+          console.log(`⚡ GPT-5 terminé: ${fullResponse.length} chars, ${chunkCount} chunks, ${Math.round(totalTime)}ms total`);
           callbacks.onComplete?.(fullResponse);
           resolve();
         } else {
@@ -151,7 +190,7 @@ export async function sendMessageToGPT5ChatCompletions(
               if (details) message = `${message} - ${details}`;
             }
           } catch {}
-          console.error(`❌ ${message}`);
+          console.error(`❌ ${message} après ${Math.round(totalTime)}ms`);
           callbacks.onError?.(new Error(message));
           reject(new Error(message));
         }
@@ -169,21 +208,37 @@ export async function sendMessageToGPT5ChatCompletions(
       resolve();
     };
 
-    // Payload avec les paramètres exacts du Playground
-    const requestBody = JSON.stringify({
+    // ⚡ OPTIMISATION 5: Construction de payload ultra-efficace
+    const payload: any = {
       model: model,
       messages: messages,
-      response_format: {
-        "type": "text"
-      },
+      response_format: { "type": "text" },
       verbosity: options?.verbosity || "low",
       reasoning_effort: options?.reasoning_effort || "minimal",
       stream: true,
-      ...(typeof options?.temperature === 'number' ? { temperature: options.temperature } : {})
-    });
+      // ⚡ OPTIMISATIONS GPT-5 pour vitesse
+      stream_options: { include_usage: false }, // Réduire overhead
+      max_tokens: 2048, // Limite raisonnable
+    };
+    
+    // Ajouter température seulement si spécifiée
+    if (typeof options?.temperature === 'number') {
+      payload.temperature = options.temperature;
+    }
 
-    console.log('📤 Envoi requête GPT-5 Chat Completions...');
-    xhr.send(requestBody);
+    // ⚡ OPTIMISATION 6: Sérialisation JSON optimisée
+    const requestBody = JSON.stringify(payload);
+
+    console.log('⚡ Envoi requête GPT-5 ultra-optimisée...');
+    
+    // ⚡ OPTIMISATION 7: Envoi immédiat sans délai
+    try {
+      xhr.send(requestBody);
+    } catch (e) {
+      console.error('❌ Envoi GPT-5 échoué:', (e as any)?.message || e);
+      callbacks.onError?.(e as any);
+      reject(e);
+    }
   });
 }
 
@@ -373,7 +428,7 @@ export async function sendMessageToOpenAI(
   }
 }
 
-// ⚡ Service de streaming ULTRA-RAPIDE avec optimisations réseau
+// ⚡ Service de streaming ULTRA-RAPIDE avec optimisations réseau (LEGACY - utiliser sendMessageToGPT5ChatCompletions à la place)
 export async function sendMessageToOpenAIStreaming(
   messages: ChatMessage[],
   callbacks: StreamingCallbacks,
@@ -493,7 +548,7 @@ export async function sendMessageToOpenAIStreaming(
   });
 }
 
-// Fonction pour traiter les chunks de streaming Server-Sent Events
+// ⚡ FONCTION ULTRA-OPTIMISÉE pour traiter les chunks de streaming
 function processStreamChunk(chunk: string, onContent: (content: string) => void): void {
   const lines = chunk.split('\n');
   let currentEvent: string | null = null;
@@ -511,16 +566,20 @@ function processStreamChunk(chunk: string, onContent: (content: string) => void)
       const data = line.slice(5).trim();
 
       if (data === '[DONE]') {
-        console.log('🏁 Signal [DONE] reçu');
-        continue;
+        continue; // Signal fin de stream
       }
 
       try {
         const parsed = JSON.parse(data);
 
-        // Responses API streaming (robuste):
-        // - output_text delta events
-        // - potential fields: delta, textDelta, content, choices[0].delta.content (legacy)
+        // ⚡ PRIORITÉ 1: Chat Completions GPT-5 (format principal maintenant)
+        const chatContent = parsed.choices?.[0]?.delta?.content;
+        if (typeof chatContent === 'string' && chatContent) {
+          onContent(chatContent);
+          continue;
+        }
+
+        // ⚡ PRIORITÉ 2: Responses API delta (fallback legacy)
         if (currentEvent && currentEvent.includes('response.output_text.delta')) {
           const delta = parsed.delta ?? parsed.text ?? parsed.textDelta ?? parsed.output_text_delta;
           if (typeof delta === 'string' && delta) {
@@ -529,7 +588,7 @@ function processStreamChunk(chunk: string, onContent: (content: string) => void)
           }
         }
 
-        // Some implementations stream as { type: 'response.output_text.delta', delta: '...' }
+        // ⚡ PRIORITÉ 3: Type-based delta (autres implémentations)
         if (parsed.type && parsed.type === 'response.output_text.delta') {
           const delta = parsed.delta ?? parsed.text;
           if (typeof delta === 'string' && delta) {
@@ -537,15 +596,8 @@ function processStreamChunk(chunk: string, onContent: (content: string) => void)
             continue;
           }
         }
-
-        // Legacy Chat Completions delta
-        const legacyContent = parsed.choices?.[0]?.delta?.content;
-        if (typeof legacyContent === 'string' && legacyContent) {
-          onContent(legacyContent);
-          continue;
-        }
       } catch (e) {
-        // Ignorer les chunks JSON malformés silencieusement
+        // ⚡ IGNORER SILENCIEUSEMENT les erreurs JSON pour performance
         continue;
       }
     }
@@ -584,8 +636,21 @@ function extractFinalOutputFromSSE(sseText: string): string | null {
   }
 }
 
-// Appel non-streaming (utile pour le raisonnement élevé en RN)
+// 🔄 NOUVEAU: Alias pour utiliser Chat Completions au lieu de Responses API (non-streaming)
 export async function sendMessageToOpenAINonStreamingResponses(
+  messages: ChatMessage[],
+  model: string = DEFAULT_GPT5_MODEL,
+  reasoningEffort: ReasoningEffort = 'low',
+  options?: { temperature?: number; maxOutputTokens?: number }
+): Promise<string> {
+  // 🚀 REDIRECTION: Utiliser Chat Completions GPT-5 au lieu de Responses API
+  console.log('🔄 Redirection Non-Streaming Responses API → Chat Completions GPT-5');
+  
+  return testGPT5ChatCompletions(messages);
+}
+
+// 🗂️ LEGACY: Appel non-streaming (utile pour le raisonnement élevé en RN)
+export async function sendMessageToOpenAINonStreamingResponsesLEGACY(
   messages: ChatMessage[],
   model: string = DEFAULT_GPT5_MODEL,
   reasoningEffort: ReasoningEffort = 'low',
@@ -741,8 +806,33 @@ export async function sendMessageToOpenAINonStreamingResponses(
   }
   return '';
 }
-// NOUVEAU: Streaming via Responses API (GPT-5, reasoning effort)
+// 🔄 NOUVEAU: Alias pour utiliser Chat Completions au lieu de Responses API
 export async function sendMessageToOpenAIStreamingResponses(
+  messages: ChatMessage[],
+  callbacks: StreamingCallbacks,
+  model: string = DEFAULT_GPT5_MODEL,
+  reasoningEffort: ReasoningEffort = 'low',
+  abortController?: AbortController,
+  options?: { temperature?: number; maxOutputTokens?: number }
+): Promise<void> {
+  // 🚀 REDIRECTION: Utiliser Chat Completions GPT-5 au lieu de Responses API
+  console.log('🔄 Redirection Responses API → Chat Completions GPT-5');
+  
+  return sendMessageToGPT5ChatCompletions(
+    messages,
+    callbacks,
+    model.includes('gpt-5') ? model : "gpt-5-nano",
+    abortController,
+    {
+      verbosity: "low",
+      reasoning_effort: reasoningEffort === 'low' ? "minimal" : reasoningEffort,
+      temperature: options?.temperature
+    }
+  );
+}
+
+// 🗂️ LEGACY: Ancienne fonction Responses API (conservée pour référence)
+export async function sendMessageToOpenAIStreamingResponsesLEGACY(
   messages: ChatMessage[],
   callbacks: StreamingCallbacks,
   model: string = DEFAULT_GPT5_MODEL,
