@@ -22,6 +22,7 @@ import {
   DEFAULT_GPT5_MODEL
 } from '../../services/openaiService';
 import { SendIcon, WidgetsIcon } from '../../components/icons/SvgIcons';
+import { useLocalConversation } from '../../hooks/useLocalConversation';
 
 interface Message {
   id: string;
@@ -37,8 +38,7 @@ export default function AssistantResume() {
   const suckTo = useSuckNavigator();
   const insets = useSafeAreaInsets();
   
-  // États identiques aux autres assistants
-  const [messages, setMessages] = useState<Message[]>([]);
+  // États avec hook de conversation locale
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
@@ -70,13 +70,11 @@ Envoyez-moi le texte que vous souhaitez résumer, et je vous fournirai une synth
     };
   }, [resumeMode]);
 
-  // Initialiser avec message d'accueil (SEULEMENT au premier chargement)
-  useEffect(() => {
-    if (messages.length === 0) {
-      const welcomeMessage = getWelcomeMessage();
-      setMessages([welcomeMessage]);
-    }
-  }, []); // Pas de dépendance resumeMode pour éviter la réinitialisation
+  // Hook de conversation locale
+  const { messages, setMessages, handleNewChat: handleNewChatLocal, checkStorageLimits } = useLocalConversation({
+    widgetName: 'resume',
+    getWelcomeMessage
+  });
 
   // Prompt spécialisé résumé
   const getSystemPrompt = (mode: ResumeMode): string => {
@@ -325,7 +323,7 @@ Sois ultra-synthétique, percutant et précis.`;
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // Rendu d'un message
   const renderMessage = ({ item }: { item: Message }) => (

@@ -251,104 +251,40 @@ export async function analyzeImageWithOpenAIStreaming(
   abortController?: AbortController,
   options?: { temperature?: number; maxOutputTokens?: number }
 ): Promise<void> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!API_KEY) {
-    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
-    return;
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    let fullResponse = '';
-    let buffer = '';
-
-    xhr.open('POST', 'https://api.openai.com/v1/responses');
-    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-
-    const ORG = process.env.EXPO_PUBLIC_OPENAI_ORG;
-    const PROJECT = process.env.EXPO_PUBLIC_OPENAI_PROJECT;
-    if (ORG) xhr.setRequestHeader('OpenAI-Organization', ORG);
-    if (PROJECT) xhr.setRequestHeader('OpenAI-Project', PROJECT);
-
-    if (abortController) {
-      abortController.signal.addEventListener('abort', () => {
-        xhr.abort();
-      });
-    }
-
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState === XMLHttpRequest.LOADING || xhr.readyState === XMLHttpRequest.DONE) {
-        const newData = xhr.responseText.slice(buffer.length);
-        buffer = xhr.responseText;
-        if (newData) {
-          processStreamChunk(newData, (content) => {
-            fullResponse += content;
-            callbacks.onChunk?.(content);
-          });
-        }
-      }
-      if (xhr.readyState === XMLHttpRequest.DONE) {
-        if (xhr.status === 200) {
-          if (!fullResponse || fullResponse.length === 0) {
-            try {
-              const recovered = extractFinalOutputFromSSE(xhr.responseText);
-              if (recovered) fullResponse = recovered;
-            } catch {}
-          }
-          callbacks.onComplete?.(fullResponse);
-          resolve();
-        } else {
-          let message = `Erreur API: ${xhr.status}`;
-          try {
-            const body = xhr.responseText;
-            if (body) {
-              const parsed = JSON.parse(body);
-              const details = parsed?.error?.message || parsed?.message;
-              if (details) message = `${message} - ${details}`;
-            }
-          } catch {}
-          callbacks.onError?.(new Error(message));
-          reject(new Error(message));
-        }
-      }
-    };
-
-    xhr.onerror = () => {
-      callbacks.onError?.(new Error('Erreur de connexion'));
-      reject(new Error('Erreur de connexion'));
-    };
-
-    xhr.onabort = () => {
-      resolve();
-    };
-
-    const payload: any = {
-      model,
-      input: [
+  console.log('🔄 Image Analysis → Chat Completions GPT-5');
+  
+  // Construire le message avec image pour ChatCompletion
+  const messages: ChatMessage[] = [
+    {
+      role: 'user',
+      content: [
         {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: promptText },
-            // Utiliser image_url avec schéma data: pour compatibilité large
-            { type: 'input_image', image_url: `data:image/jpeg;base64,${base64Image}` },
-          ]
+          type: 'text',
+          text: promptText
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:image/jpeg;base64,${base64Image}`,
+            detail: 'high'
+          }
         }
-      ],
-      max_output_tokens: options?.maxOutputTokens ?? 1000,
-      stream: true,
-      text: { format: { type: 'text' } },
-    };
-    if (typeof options?.temperature === 'number') payload.temperature = options.temperature;
-
-    try {
-      xhr.send(JSON.stringify(payload));
-    } catch (e) {
-      console.error('❌ Envoi payload vision échoué:', (e as any)?.message || e);
-      callbacks.onError?.(e as any);
+      ]
     }
-  });
+  ];
+
+  // Utiliser Chat Completions GPT-5 au lieu de Responses API
+  return sendMessageToGPT5ChatCompletions(
+    messages,
+    callbacks,
+    model.includes('gpt-5') ? model : "gpt-5-nano",
+    abortController,
+    {
+      verbosity: "low",
+      reasoning_effort: "minimal",
+      temperature: options?.temperature
+    }
+  );
 }
 
 // Service pour envoyer des messages à OpenAI (mode normal - pour fallback seulement)

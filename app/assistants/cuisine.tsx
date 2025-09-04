@@ -10,7 +10,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  ActionSheetIOS
+  ActionSheetIOS,
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +26,7 @@ import {
 import { SendIcon, WidgetsIcon, ImageIcon } from '../../components/icons/SvgIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { analyzeImageWithOpenAIStreaming } from '../../services/openaiService';
+import { localStorageService, type LocalMessage } from '../../services/localStorageService';
 
 interface Message {
   id: string;
@@ -42,6 +44,10 @@ export default function AssistantCuisine() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
+  
+  // État pour la prévisualisation d'image
+  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   
@@ -50,13 +56,13 @@ export default function AssistantCuisine() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const textInputRef = useRef<TextInput>(null);
   const streamingBufferRef = useRef<string>('');
-  const streamingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const streamingTimerRef = useRef<number | null>(null);
 
   // Refs pour le système machine à écrire EXACT du ChatIA
   const typewriterTimerRef = useRef<number | null>(null);
   const typewriterQueueRef = useRef<string>('');
   const streamingTextRef = useRef<string>('');
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const updateTimeoutRef = useRef<number | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
   // Générer message d'accueil initial
@@ -80,21 +86,68 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     };
   }, []);
 
-  // Initialiser avec message d'accueil (SEULEMENT au premier chargement)
+  // Chargement initial avec conservation locale
   useEffect(() => {
-    if (messages.length === 0) {
-      const welcomeMessage = getWelcomeMessage();
-      setMessages([welcomeMessage]);
-    }
-  }, []); // Pas de dépendance pour éviter la réinitialisation
+    const loadSavedConversation = async () => {
+      try {
+        const savedMessages = await localStorageService.loadConversation('cuisine');
+        
+        if (savedMessages.length > 0) {
+          // Convertir LocalMessage vers Message
+          const convertedMessages: Message[] = savedMessages.map(msg => ({
+            id: msg.id,
+            text: msg.text,
+            isUser: msg.isUser,
+            timestamp: msg.timestamp
+          }));
+          setMessages(convertedMessages);
+        } else {
+          // Pas de conversation sauvée, créer message d'accueil
+          const welcomeMessage = getWelcomeMessage();
+          setMessages([welcomeMessage]);
+        }
+      } catch (error) {
+        console.error('Erreur chargement conversation cuisine:', error);
+        // Fallback sur message d'accueil
+        const welcomeMessage = getWelcomeMessage();
+        setMessages([welcomeMessage]);
+      }
+    };
+
+    loadSavedConversation();
+  }, []); // Chargement unique au montage
 
   // Prompt spécialisé cuisine
   const getSystemPrompt = (): string => {
     return 'Tu es un chef cuisinier expert. Aide avec les recettes et conseils culinaires. Utilise des émojis 🍳';
   };
 
-  // Gestion du nouveau chat avec confirmation
-  const handleNewChat = useCallback(() => {
+  // Sauvegarde automatique des messages
+  useEffect(() => {
+    const saveConversation = async () => {
+      if (messages.length > 0) {
+        // Convertir Message vers LocalMessage
+        const localMessages: LocalMessage[] = messages.map(msg => ({
+          id: msg.id,
+          text: msg.text,
+          isUser: msg.isUser,
+          timestamp: msg.timestamp
+        }));
+        
+        const success = await localStorageService.saveConversation('cuisine', localMessages);
+        if (!success) {
+          console.warn('Impossible de sauvegarder la conversation cuisine');
+        }
+      }
+    };
+
+    // Délai pour éviter les sauvegardes trop fréquentes pendant le streaming
+    const timeoutId = setTimeout(saveConversation, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [messages]);
+
+  // Gestion du nouveau chat avec confirmation et nettoyage local
+  const handleNewChat = useCallback(async () => {
     if (conversationStarted && messages.length > 1) {
       Alert.alert(
         'Nouvelle conversation',
@@ -107,7 +160,10 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
           {
             text: 'Confirmer',
             style: 'destructive',
-            onPress: () => {
+            onPress: async () => {
+              // Nettoyer la conversation locale
+              await localStorageService.clearConversation('cuisine');
+              
               // Reset avec nouveau message d'accueil
               const welcomeMessage = getWelcomeMessage();
               setMessages([welcomeMessage]);
@@ -125,6 +181,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
       );
     } else {
       // Si pas de conversation, reset avec message d'accueil
+      await localStorageService.clearConversation('cuisine');
       const welcomeMessage = getWelcomeMessage();
       setMessages([welcomeMessage]);
       setConversationStarted(true);
@@ -153,7 +210,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
       }
       updateTimeoutRef.current = setTimeout(() => {
         setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
-      }, 10) as unknown as number;
+      }, 10);
 
       if (typewriterQueueRef.current.length === 0) {
         // Arrêter le timer si plus rien à écrire
@@ -219,7 +276,22 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
 
   // Fonction pour envoyer un message (identique à correction)
   const sendMessage = async () => {
-    if (!inputText.trim() || isAITyping) return;
+    console.log('📤 Cuisine - sendMessage appelée - inputText:', inputText.trim(), 'selectedImageBase64:', !!selectedImageBase64, 'isAITyping:', isAITyping);
+    
+    if ((!inputText.trim() && !selectedImageBase64) || isAITyping) {
+      console.log('❌ Cuisine - Conditions non remplies pour envoyer un message');
+      return;
+    }
+
+    // Si une image est sélectionnée, envoyer avec l'image
+    if (selectedImageBase64) {
+      console.log('📷 Cuisine - Envoi avec image détecté');
+      const currentInput = inputText.trim();
+      setInputText('');
+      removeSelectedImage();
+      await sendMessageWithImage(currentInput, selectedImageBase64);
+      return;
+    }
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -247,6 +319,9 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     setIsAITyping(true);
     setStreamingMessageId(assistantMessageId);
     setConversationStarted(true);
+
+    // Vérifier les limites de stockage avant d'ajouter plus de contenu
+    await localStorageService.checkAndWarnIfNeeded('cuisine');
 
     // Réinitialiser la ref de streaming pour ce nouveau message - EXACT ChatIA
     streamingTextRef.current = '';
@@ -335,45 +410,11 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     }
   };
 
-  const pickAndSendImage = useCallback(async () => {
-    const runWithBase64 = async (base64: string) => {
-      const assistantMessageId = `assistant-${Date.now()}`;
-      const assistantMessage: Message = {
-        id: assistantMessageId,
-        text: '',
-        isUser: false,
-        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, { id: `user-${Date.now()}`, text: '[Image envoyée] Analyse en cours…', isUser: true, timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }, assistantMessage]);
-
-      abortControllerRef.current = new AbortController();
-      streamingBufferRef.current = '';
-      if (streamingTimerRef.current) { clearTimeout(streamingTimerRef.current); streamingTimerRef.current = null; }
-
-      await analyzeImageWithOpenAIStreaming(
-        base64,
-        "Voici une photo d'ingrédients. Décris-les et propose 3 recettes simples et 2 recettes créatives possibles avec instructions et quantités.",
-        {
-          onChunk: (chunk: string) => {
-            streamingBufferRef.current += chunk;
-            if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-            streamingTimerRef.current = setTimeout(() => {
-              const buffer = streamingBufferRef.current; streamingBufferRef.current = '';
-              setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: msg.text + buffer } : msg));
-            }, 12);
-          },
-          onComplete: (full: string) => {
-            if (streamingTimerRef.current) { clearTimeout(streamingTimerRef.current); streamingTimerRef.current = null; }
-            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: full } : msg));
-          },
-          onError: () => {
-            console.error('❌ Vision onError (cuisine): image non analysée');
-            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: 'Impossible d’analyser l’image.' } : msg));
-          }
-        },
-        DEFAULT_GPT5_MODEL,
-        abortControllerRef.current
-      );
+  const pickAndSelectImage = useCallback(async () => {
+    const runWithBase64AndUri = async (base64: string, uri: string) => {
+      setSelectedImageBase64(base64);
+      setSelectedImageUri(uri);
+      console.log('📷 Image sélectionnée (cuisine), prête pour envoi');
     };
 
     try {
@@ -389,14 +430,18 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
                 const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 if (libPerm.status !== 'granted') { Alert.alert('Permission requise', "Autorisez l'accès aux photos."); return; }
                 const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
-                if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+                  await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+                }
               }, 150);
             } else if (buttonIndex === 2) {
               setTimeout(async () => {
                 const camPerm = await ImagePicker.requestCameraPermissionsAsync();
                 if (camPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès à la caméra.'); return; }
                 const result = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: true });
-                if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+                  await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+                }
               }, 150);
             }
           }
@@ -404,13 +449,90 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
       } else {
         const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (libPerm.status !== 'granted') { Alert.alert('Permission requise', "Autorisez l'accès aux photos."); return; }
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: [ImagePicker.MediaType.IMAGE], quality: 0.85, base64: true });
-        if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+        const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
+        if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+          await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+        }
       }
     } catch (e) {
       Alert.alert('Erreur', 'Échec de sélection de la photo.');
     }
   }, []);
+
+  // Fonction pour supprimer l'image sélectionnée
+  const removeSelectedImage = useCallback(() => {
+    console.log('🗑️ Suppression image sélectionnée');
+    setSelectedImageBase64(null);
+    setSelectedImageUri(null);
+  }, []);
+
+  // Fonction pour envoyer un message avec image
+  const sendMessageWithImage = async (message: string, imageBase64: string) => {
+    console.log('🚀 Cuisine - sendMessageWithImage appelée avec message:', message, 'imageBase64 length:', imageBase64.length);
+    
+    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      text: '',
+      isUser: false,
+      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    };
+    
+    console.log('📝 Cuisine - Ajout des messages dans l\'interface');
+    setMessages(prev => [...prev, 
+      { 
+        id: `user-${Date.now()}`, 
+        text: `${message}\n\n📷 [Image jointe]`, 
+        isUser: true, 
+        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
+      }, 
+      assistantMessage
+    ]);
+
+    abortControllerRef.current = new AbortController();
+    streamingBufferRef.current = '';
+    if (streamingTimerRef.current) { 
+      clearTimeout(streamingTimerRef.current); 
+      streamingTimerRef.current = null; 
+    }
+
+    console.log('🤖 Cuisine - Début analyse image avec OpenAI');
+    try {
+      await analyzeImageWithOpenAIStreaming(
+        imageBase64,
+        message || "Voici une photo d'ingrédients. Décris-les et propose 3 recettes simples et 2 recettes créatives possibles avec instructions et quantités.",
+        {
+          onChunk: (chunk: string) => {
+            console.log('📥 Cuisine - Chunk reçu:', chunk.length, 'caractères');
+            streamingBufferRef.current += chunk;
+            if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
+            streamingTimerRef.current = setTimeout(() => {
+              const buffer = streamingBufferRef.current; 
+              streamingBufferRef.current = '';
+              setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: msg.text + buffer } : msg));
+            }, 12);
+          },
+          onComplete: (full: string) => {
+            console.log('✅ Cuisine - Vision analyse terminée, texte complet:', full.length, 'caractères');
+            if (streamingTimerRef.current) { 
+              clearTimeout(streamingTimerRef.current); 
+              streamingTimerRef.current = null; 
+            }
+            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: full } : msg));
+          },
+          onError: (error) => {
+            console.error('❌ Cuisine - Vision onError:', error);
+            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: 'Impossible d\'analyser l\'image.' } : msg));
+          }
+        },
+        DEFAULT_GPT5_MODEL,
+        abortControllerRef.current
+      );
+    } catch (error) {
+      console.error('❌ Cuisine - Erreur dans analyzeImageWithOpenAIStreaming:', error);
+      setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: 'Erreur lors de l\'analyse de l\'image.' } : msg));
+    }
+  };
 
   // Arrêter la génération
   const stopGeneration = () => {
@@ -435,7 +557,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // Rendu d'un message
   const renderMessage = ({ item }: { item: Message }) => (
@@ -535,6 +657,35 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
             }}
           />
 
+          {/* Prévisualisation d'image sélectionnée */}
+          {(() => {
+            console.log('🔍 Cuisine - Debug render - selectedImageUri:', selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+            return null;
+          })()}
+          {selectedImageUri && (
+            <View style={[styles.imagePreviewContainer, { backgroundColor: theme.backgrounds.primary }]}>
+              <View style={styles.imagePreviewContent}>
+                <Image 
+                  source={{ uri: selectedImageUri }} 
+                  style={styles.imagePreview} 
+                  resizeMode="cover"
+                  onLoad={() => console.log('🖼️ Cuisine - Image chargée avec succès')}
+                  onError={(error: any) => console.log('❌ Cuisine - Erreur chargement image:', error)}
+                />
+                <TouchableOpacity
+                  style={styles.removeImageButton}
+                  onPress={removeSelectedImage}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.removeImageText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.imagePreviewLabel, { color: theme.text.secondary }]}>
+                📷 Image prête à envoyer
+              </Text>
+            </View>
+          )}
+
           {/* Zone de saisie (couleurs app de base + bouton orange) */}
           <View style={[
             styles.inputContainer,
@@ -545,7 +696,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
             <View style={styles.inputRow}>
               {/* Coachmark retiré à la demande */}
               <TouchableOpacity 
-                onPress={pickAndSendImage}
+                onPress={pickAndSelectImage}
                 style={[styles.sendButton, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}
               >
                 <ImageIcon size={20} color={isDark ? '#ffffff' : '#111827'} />
@@ -559,7 +710,7 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
                     backgroundColor: isDark ? '#374151' : '#ffffff'
                   }
                 ]}
-                placeholder="Décrivez votre projet culinaire..."
+                placeholder="Ecrivez votre message..."
                 placeholderTextColor={theme.text.secondary}
                 value={inputText}
                 onChangeText={setInputText}
@@ -576,11 +727,11 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
                   styles.sendButton,
                   {
                     backgroundColor: isAITyping ? '#FF3B30' : (isDark ? '#f59e0b' : '#d97706'), // Orange
-                    opacity: (!inputText.trim() && !isAITyping) ? 0.5 : 1
+                    opacity: ((!inputText.trim() && !selectedImageBase64) && !isAITyping) ? 0.5 : 1
                   }
                 ]}
                 onPress={isAITyping ? stopGeneration : sendMessage}
-                disabled={!inputText.trim() && !isAITyping}
+                disabled={(!inputText.trim() && !selectedImageBase64) && !isAITyping}
               >
                 {isAITyping ? (
                   <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>⏹</Text>
@@ -749,5 +900,49 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
+  },
+  // Styles pour la prévisualisation d'image
+  imagePreviewContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  imagePreviewContent: {
+    position: 'relative',
+    alignSelf: 'flex-start',
+  },
+  imagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  removeImageText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    lineHeight: 14,
+  },
+  imagePreviewLabel: {
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
   },
 });

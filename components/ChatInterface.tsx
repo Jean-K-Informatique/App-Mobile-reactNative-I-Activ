@@ -105,6 +105,10 @@ export default function ChatInterface({
   // Refs pour optimiser l'accumulation de texte streaming
   const streamingTextRef = useRef<string>('');
   const updateTimeoutRef = useRef<number | null>(null);
+  
+  // État pour la prévisualisation d'image
+  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
 
   const [forceNewConversation, setForceNewConversation] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('low');
@@ -671,39 +675,12 @@ export default function ChatInterface({
     }
   };
 
-  const pickAndSendImage = useCallback(async () => {
-    const runWithBase64 = async (base64: string) => {
-      const assistantMessageId = (Date.now() + 1).toString();
-      const assistantMessage: Message = {
-        id: assistantMessageId,
-        text: '',
-        isUser: false,
-        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        streaming: true
-      };
-      setMessages(prev => [...prev, { id: Date.now().toString(), text: '[Image envoyée] Analyse en cours…', isUser: true, timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }, assistantMessage]);
-
-      abortControllerRef.current = new AbortController();
-      let aggregated = '';
-      await analyzeImageWithOpenAIStreaming(
-        base64,
-        'Décris le contenu de cette image et en déduis des éléments utiles pour la conversation.',
-        {
-          onChunk: (c) => {
-            aggregated += c;
-            updateStreamingMessage(assistantMessageId, c);
-          },
-          onComplete: () => {
-            finalizeStreamingMessage(assistantMessageId, aggregated);
-          },
-          onError: () => {
-            console.error('❌ Vision onError (chat): image non analysée');
-            handleStreamingError(assistantMessageId, 'Impossible d’analyser l’image.');
-          }
-        },
-        DEFAULT_GPT5_MODEL,
-        abortControllerRef.current
-      );
+  const pickAndSelectImage = useCallback(async () => {
+    const runWithBase64AndUri = async (base64: string, uri: string) => {
+      console.log('📷 Image sélectionnée, base64 length:', base64.length, 'uri:', uri);
+      setSelectedImageBase64(base64);
+      setSelectedImageUri(uri);
+      console.log('📷 États mis à jour - selectedImageBase64:', !!base64, 'selectedImageUri:', !!uri);
     };
     try {
       setImagePicking(true);
@@ -720,14 +697,18 @@ export default function ChatInterface({
                   const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                   if (libPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès aux photos.'); return; }
                   const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                  if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+                    await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+                  }
                 }, 150);
               } else if (buttonIndex === 2) {
                 setTimeout(async () => {
                   const camPerm = await ImagePicker.requestCameraPermissionsAsync();
                   if (camPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès à la caméra.'); return; }
                   const result = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: true });
-                  if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+                  if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+                    await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+                  }
                 }, 150);
               }
             } finally {
@@ -740,17 +721,99 @@ export default function ChatInterface({
         const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (libPerm.status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l’accès aux photos.'); setImagePicking(false); return; }
         const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: true });
-        if (!result.canceled && result.assets?.[0]?.base64) await runWithBase64(result.assets[0].base64 as string);
+        if (!result.canceled && result.assets?.[0]?.base64 && result.assets?.[0]?.uri) {
+          await runWithBase64AndUri(result.assets[0].base64 as string, result.assets[0].uri);
+        }
         setImagePicking(false);
       }
     } catch (e) {
       Alert.alert('Erreur', 'Impossible de sélectionner l’image.');
       setImagePicking(false);
     }
-  }, [updateStreamingMessage, finalizeStreamingMessage, handleStreamingError]);
+  }, []);
+
+  // Fonction pour supprimer l'image sélectionnée
+  const removeSelectedImage = useCallback(() => {
+    setSelectedImageBase64(null);
+    setSelectedImageUri(null);
+  }, []);
+
+  // Fonction pour envoyer un message avec image
+  const sendMessageWithImage = async (message: string, imageBase64: string) => {
+    console.log('🚀 sendMessageWithImage appelée avec message:', message, 'imageBase64 length:', imageBase64.length);
+    
+    const assistantMessageId = (Date.now() + 1).toString();
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      text: '',
+      isUser: false,
+      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      streaming: true
+    };
+    
+    console.log('📝 Ajout des messages dans l\'interface');
+    // Ajouter le message utilisateur avec indication d'image et le message assistant
+    setMessages(prev => [...prev, 
+      { 
+        id: Date.now().toString(), 
+        text: `${message}\n\n📷 [Image jointe]`, 
+        isUser: true, 
+        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
+      }, 
+      assistantMessage
+    ]);
+
+    abortControllerRef.current = new AbortController();
+    setIsAITyping(true);
+    setStreamingMessageId(assistantMessageId);
+    
+    console.log('🤖 Début analyse image avec OpenAI');
+    let aggregated = '';
+    try {
+      await analyzeImageWithOpenAIStreaming(
+        imageBase64,
+        message || 'Décris le contenu de cette image et en déduis des éléments utiles pour la conversation.',
+        {
+          onChunk: (chunk) => {
+            console.log('📥 Chunk reçu:', chunk.length, 'caractères');
+            aggregated += chunk;
+            updateStreamingMessage(assistantMessageId, chunk);
+          },
+          onComplete: (fullText) => {
+            console.log('✅ Vision analyse terminée, texte complet:', fullText.length, 'caractères');
+            finalizeStreamingMessage(assistantMessageId, aggregated);
+          },
+          onError: (error) => {
+            console.error('❌ Vision onError (chat):', error);
+            handleStreamingError(assistantMessageId, 'Impossible d\'analyser l\'image.');
+          }
+        },
+        DEFAULT_GPT5_MODEL,
+        abortControllerRef.current
+      );
+    } catch (error) {
+      console.error('❌ Erreur dans analyzeImageWithOpenAIStreaming:', error);
+      handleStreamingError(assistantMessageId, 'Erreur lors de l\'analyse de l\'image.');
+    }
+  };
 
   const sendMessage = async () => {
-    if (!inputText.trim() || isAITyping) return;
+    console.log('📤 sendMessage appelée - inputText:', inputText.trim(), 'selectedImageBase64:', !!selectedImageBase64, 'isAITyping:', isAITyping);
+    
+    if ((!inputText.trim() && !selectedImageBase64) || isAITyping) {
+      console.log('❌ Conditions non remplies pour envoyer un message');
+      return;
+    }
+
+    // Si une image est sélectionnée, envoyer avec l'image
+    if (selectedImageBase64) {
+      console.log('📷 Envoi avec image détecté');
+      const currentInput = inputText.trim();
+      setInputText('');
+      removeSelectedImage();
+      await sendMessageWithImage(currentInput, selectedImageBase64);
+      return;
+    }
 
     // Vérifier si on peut envoyer le message en mode privé
     if (!handleNewPrivateConversation()) {
@@ -1242,6 +1305,35 @@ export default function ChatInterface({
         />
       )}
 
+      {/* Prévisualisation d'image sélectionnée */}
+      {(() => {
+        console.log('🔍 Debug render - selectedImageUri:', selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+        return null;
+      })()}
+      {selectedImageUri && (
+        <View style={[styles.imagePreviewContainer, { backgroundColor: theme.backgrounds.primary }]}>
+          <View style={styles.imagePreviewContent}>
+            <Image 
+              source={{ uri: selectedImageUri }} 
+              style={styles.imagePreview} 
+              resizeMode="cover"
+              onLoad={() => console.log('🖼️ Image chargée avec succès')}
+              onError={(error) => console.log('❌ Erreur chargement image:', error)}
+            />
+            <TouchableOpacity
+              style={styles.removeImageButton}
+              onPress={removeSelectedImage}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.removeImageText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.imagePreviewLabel, { color: theme.text.secondary }]}>
+            📷 Image prête à envoyer
+          </Text>
+        </View>
+      )}
+
       {/* Zone de saisie */}
       <View style={[
         styles.inputContainer,
@@ -1276,7 +1368,7 @@ export default function ChatInterface({
               ]}
               onPressIn={() => setPressedItem('photo')}
               onPressOut={() => setPressedItem(null)}
-              onPress={() => { setShowToolbar(false); pickAndSendImage(); }}
+              onPress={() => { setShowToolbar(false); pickAndSelectImage(); }}
             >
               <ImageIcon size={18} />
               <Text style={[styles.sheetLabel, { color: theme.text.primary }]}>Ajouter photo</Text>
@@ -1399,11 +1491,11 @@ export default function ChatInterface({
               styles.sendButton,
               {
                 backgroundColor: isAITyping ? '#FF3B30' : (isDark ? '#ffffff' : '#222422'),
-                opacity: (!inputText.trim() && !isAITyping) ? 0.5 : 1
+                opacity: ((!inputText.trim() && !selectedImageBase64) && !isAITyping) ? 0.5 : 1
               }
             ]}
             onPress={isAITyping ? stopGeneration : sendMessage}
-            disabled={!inputText.trim() && !isAITyping}
+            disabled={(!inputText.trim() && !selectedImageBase64) && !isAITyping}
           >
             {isAITyping ? (
               <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>⏹</Text>
@@ -1763,5 +1855,49 @@ const styles = StyleSheet.create({
   activeTagText: {
     color: '#ffffff',
     fontSize: 12,
+  },
+  // Styles pour la prévisualisation d'image
+  imagePreviewContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  imagePreviewContent: {
+    position: 'relative',
+    alignSelf: 'flex-start',
+  },
+  imagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  removeImageText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    lineHeight: 14,
+  },
+  imagePreviewLabel: {
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
   },
 }); 

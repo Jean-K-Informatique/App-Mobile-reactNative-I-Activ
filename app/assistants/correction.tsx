@@ -29,6 +29,7 @@ import {
 } from '../../services/openaiService';
 import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon, WidgetsIcon, UserIcon } from '../../components/icons/SvgIcons';
 import ProfileModal from '../../components/ui/ProfileModal';
+import { useLocalConversation } from '../../hooks/useLocalConversation';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -48,8 +49,7 @@ export default function AssistantCorrection() {
   const suckTo = useSuckNavigator();
   const insets = useSafeAreaInsets();
   
-  // États principaux (identiques à ChatInterface)
-  const [messages, setMessages] = useState<Message[]>([]);
+  // États principaux avec hook de conversation locale
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(true); // Déjà démarré avec message d'accueil
@@ -73,26 +73,24 @@ export default function AssistantCorrection() {
   const typewriterQueueRef = useRef<string>('');
 
   // Générer message d'accueil initial
-  const getWelcomeMessage = useCallback((mode: CorrectionMode): Message => {
-    const welcomeText = mode === 'orthographe' 
+  const getWelcomeMessage = useCallback((): Message => {
+    const welcomeText = correctionMode === 'orthographe' 
       ? "👋 Bonjour ! Je suis votre assistant de **correction orthographique**.\n\nEnvoyez-moi le texte que vous souhaitez corriger, et je vous aiderai à éliminer toutes les fautes d'orthographe tout en vous expliquant les règles appliquées."
       : "👋 Bonjour ! Je suis votre assistant **grammaire et style**.\n\nEnvoyez-moi votre texte et je l'améliorerai au niveau grammatical et stylistique, en vous expliquant les modifications apportées pour un français plus élégant.";
     
     return {
-      id: `welcome-${mode}-${Date.now()}`,
+      id: `welcome-correction-${Date.now()}`,
       text: welcomeText,
       isUser: false,
       timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
-  }, []);
+  }, [correctionMode]);
 
-  // Initialiser avec message d'accueil (SEULEMENT au premier chargement)
-  useEffect(() => {
-    if (messages.length === 0) {
-      const welcomeMessage = getWelcomeMessage(correctionMode);
-      setMessages([welcomeMessage]);
-    }
-  }, []); // Pas de dépendance correctionMode pour éviter la réinitialisation
+  // Hook de conversation locale
+  const { messages, setMessages, handleNewChat: handleNewChatLocal, checkStorageLimits } = useLocalConversation({
+    widgetName: 'correction',
+    getWelcomeMessage
+  });
 
   // Prompts selon le mode sélectionné
   const getSystemPrompt = (mode: CorrectionMode): string => {
@@ -183,52 +181,26 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     }
   }, [streamingMessageId, finalizeStreamingMessage]);
 
-  // Reset complet (bouton Nouveau)
-  const handleNewChat = useCallback(() => {
-    if (conversationStarted && messages.length > 0) {
-      Alert.alert(
-        '🔄 Nouvelle conversation',
-        'Êtes-vous sûr de vouloir commencer une nouvelle conversation ? Votre conversation actuelle sera perdue.',
-        [
-          {
-            text: 'Annuler',
-            style: 'cancel'
-          },
-          {
-            text: 'Confirmer',
-            style: 'destructive',
-            onPress: () => {
-              // Reset avec nouveau message d'accueil
-              const welcomeMessage = getWelcomeMessage(correctionMode);
-              setMessages([welcomeMessage]);
-              setConversationStarted(true);
-              setInputText('');
-              if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-                abortControllerRef.current = null;
-              }
-              setIsAITyping(false);
-              setStreamingMessageId(null);
-              streamingTextRef.current = '';
-              streamingBufferRef.current = '';
-              if (streamingTimerRef.current) {
-                clearTimeout(streamingTimerRef.current);
-                streamingTimerRef.current = null;
-              }
-              setShowToolbar(false);
-            }
-          }
-        ]
-      );
-    } else {
-      // Si pas de conversation, reset avec message d'accueil
-      const welcomeMessage = getWelcomeMessage(correctionMode);
-      setMessages([welcomeMessage]);
-      setConversationStarted(true);
-      setInputText('');
-      setShowToolbar(false);
+  // Reset complet (bouton Nouveau) avec hook local
+  const handleNewChat = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
-  }, [conversationStarted, messages.length]);
+    setIsAITyping(false);
+    setStreamingMessageId(null);
+    streamingTextRef.current = '';
+    streamingBufferRef.current = '';
+    if (streamingTimerRef.current) {
+      clearTimeout(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
+    setInputText('');
+    setShowToolbar(false);
+    setConversationStarted(true);
+    
+    await handleNewChatLocal();
+  }, [handleNewChatLocal]);
 
   // Fonction pour envoyer un message (adaptée de ChatInterface)
   const sendMessage = async () => {
@@ -252,6 +224,9 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     };
 
     setMessages(prev => [...prev, userMessage]);
+
+    // Vérifier les limites de stockage
+    await checkStorageLimits();
 
     // Créer un message assistant vide pour le streaming
     const assistantMessageId = (Date.now() + 1).toString();
@@ -560,6 +535,7 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+    marginRight: 16,
   },
   titleGradient: {
     alignSelf: 'flex-start',
@@ -598,9 +574,9 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    marginTop: 8,
+    marginTop: 0,
   },
   actionButton: {
     width: 44,

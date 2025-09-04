@@ -7,7 +7,9 @@ import { ScreenContainer, useSuckNavigator } from '../components/ScreenTransitio
 import { useTheme } from '../contexts/ThemeContext';
 import { UserIcon } from '../components/icons/SvgIcons';
 import ProfileModal from '../components/ui/ProfileModal';
-import { testGPT5ChatCompletions, sendMessageToGPT5ChatCompletions, ChatMessage } from '../services/openaiService';
+import InfoModal from '../components/ui/InfoModal';
+import SettingsModal from '../components/ui/SettingsModal';
+import LegalPageModal from '../components/ui/LegalPageModal';
 
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -60,7 +62,7 @@ TileComponent.displayName = 'TileComponent';
 const TILES: Tile[] = [
   {
     id: 'chat',
-    title: 'Chat IA',
+    title: 'Chat I-Activ',
     subtitle: 'Conversations intelligentes',
     image: require('../assets/images/chat-IA.png'),
     route: '/main',
@@ -69,7 +71,7 @@ const TILES: Tile[] = [
   {
     id: 'orthographe',
     title: 'Correction',
-    subtitle: 'Perfectionner votre français',
+    subtitle: 'Assistant orthographe',
     image: require('../assets/images/orthographe.png'),
     route: '/orthographe',
     gradient: ['#f093fb', '#f5576c'],
@@ -100,7 +102,7 @@ const TILES: Tile[] = [
   },
   {
     id: 'maths',
-    title: 'Calculatrice',
+    title: 'Calculs',
     subtitle: 'Assistant mathématiques',
     image: require('../assets/images/math.png'),
     route: '/maths-unified',
@@ -112,28 +114,32 @@ function WidgetsScreen() {
   const { theme, isDark } = useTheme();
   const suckTo = useSuckNavigator();
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [isTestingGPT5, setIsTestingGPT5] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalPageType, setLegalPageType] = useState<'privacy' | 'terms' | 'legal' | 'cookies' | null>(null);
 
-  // Test GPT-5 Chat Completions
-  const handleTestGPT5 = async () => {
-    console.log('🔥 TEST GPT-5 CLIQUÉ depuis widgets !');
-    setIsTestingGPT5(true);
-    try {
-      const result = await testGPT5ChatCompletions();
-      Alert.alert(
-        '✅ GPT-5 Test Réussi !', 
-        `Réponse: ${result.slice(0, 100)}${result.length > 100 ? '...' : ''}`,
-        [{ text: 'OK' }]
-      );
-    } catch (error: any) {
-      Alert.alert(
-        '❌ Test GPT-5 Échoué', 
-        `Erreur: ${error.message}`,
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setIsTestingGPT5(false);
-    }
+  // Gestion des actualités (bientôt disponible)
+  const handleActualites = () => {
+    Alert.alert(
+      'Arrivera bientôt', 
+      'Cette fonctionnalité sera disponible prochainement.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  // Gestion de l'ouverture des pages légales
+  const handleOpenLegalPage = (pageType: 'privacy' | 'terms' | 'legal' | 'cookies') => {
+    setLegalPageType(pageType);
+    setShowSettingsModal(false);
+    setShowLegalModal(true);
+  };
+
+  // Fermer la page légale et revenir aux réglages
+  const handleCloseLegalPage = () => {
+    setShowLegalModal(false);
+    setLegalPageType(null);
+    setShowSettingsModal(true);
   };
 
   const renderTile = useCallback((tile: Tile) => (
@@ -195,7 +201,7 @@ function WidgetsScreen() {
           
           <TouchableOpacity 
             style={styles.menuButton}
-            onPress={() => {/* TODO: Actualités */}}
+            onPress={handleActualites}
             activeOpacity={0.7}
           >
             <Text style={[styles.menuIcon, { color: theme.text.primary }]}>📰</Text>
@@ -206,40 +212,48 @@ function WidgetsScreen() {
           
           <TouchableOpacity 
             style={styles.menuButton}
-            onPress={() => {/* TODO: Provisoire 1 */}}
+            onPress={() => setShowInfoModal(true)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>⭐</Text>
+            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>❓</Text>
             <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
-              Favoris
+              Info
             </Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
             style={styles.menuButton}
-            onPress={handleTestGPT5}
+            onPress={() => setShowSettingsModal(true)}
             activeOpacity={0.7}
-            disabled={isTestingGPT5}
           >
-            <Text style={[styles.menuIcon, { 
-              color: isTestingGPT5 ? '#999' : '#007AFF',
-              opacity: isTestingGPT5 ? 0.6 : 1 
-            }]}>
-              🧪
-            </Text>
-            <Text style={[styles.menuButtonText, { 
-              color: isTestingGPT5 ? '#999' : '#007AFF',
-              opacity: isTestingGPT5 ? 0.6 : 1 
-            }]}>
-              {isTestingGPT5 ? 'Test...' : 'GPT-5'}
+            <Text style={[styles.menuIcon, { color: theme.text.primary }]}>⚙️</Text>
+            <Text style={[styles.menuButtonText, { color: theme.text.primary }]}>
+              Réglages
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Modale Profile */}
+        {/* Modales */}
         <ProfileModal 
           visible={showProfileModal}
           onClose={() => setShowProfileModal(false)}
+        />
+        
+        <InfoModal 
+          visible={showInfoModal}
+          onClose={() => setShowInfoModal(false)}
+        />
+        
+        <SettingsModal 
+          visible={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          onOpenLegalPage={handleOpenLegalPage}
+        />
+        
+        <LegalPageModal 
+          visible={showLegalModal}
+          onClose={handleCloseLegalPage}
+          pageType={legalPageType}
         />
       </ScreenContainer>
     </SafeAreaView>

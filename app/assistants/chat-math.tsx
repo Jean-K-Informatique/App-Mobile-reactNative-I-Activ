@@ -8,6 +8,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { sendMessageToOpenAIStreamingResponses, DEFAULT_GPT5_MODEL } from '../../services/openaiService';
 import { WidgetsIcon, SendIcon } from '../../components/icons/SvgIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalConversation } from '../../hooks/useLocalConversation';
 
 // Types identiques aux autres assistants
 interface Message {
@@ -29,8 +30,7 @@ function ChatMathScreen() {
   const suckTo = useSuckNavigator();
   const insets = useSafeAreaInsets();
   
-  // États identiques aux autres assistants
-  const [messages, setMessages] = useState<Message[]>([]);
+  // États avec hook de conversation locale
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(false);
@@ -62,13 +62,11 @@ Posez-moi vos questions mathématiques : équations, calculs, géométrie, proba
     };
   }, []);
 
-  // Initialiser avec message d'accueil (SEULEMENT au premier chargement)
-  useEffect(() => {
-    if (messages.length === 0) {
-      const welcomeMessage = getWelcomeMessage();
-      setMessages([welcomeMessage]);
-    }
-  }, []); // Pas de dépendance pour éviter la réinitialisation
+  // Hook de conversation locale
+  const { messages, setMessages, handleNewChat: handleNewChatLocal, checkStorageLimits } = useLocalConversation({
+    widgetName: 'chat-math',
+    getWelcomeMessage
+  });
 
   // Prompt spécialisé mathématiques
   const getSystemPrompt = (): string => {
@@ -341,7 +339,7 @@ Posez-moi vos questions mathématiques : équations, calculs, géométrie, proba
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // Icône d'envoi/stop  
   const SendIconComponent = useMemo(() => {

@@ -29,6 +29,7 @@ import {
 } from '../../services/openaiService';
 import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon, WidgetsIcon, UserIcon } from '../../components/icons/SvgIcons';
 import ProfileModal from '../../components/ui/ProfileModal';
+import { useLocalConversation } from '../../hooks/useLocalConversation';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -70,8 +71,7 @@ export default function AssistantTraduction() {
   const suckTo = useSuckNavigator();
   const insets = useSafeAreaInsets();
   
-  // États principaux (identiques à correction)
-  const [messages, setMessages] = useState<Message[]>([]);
+  // États principaux avec hook de conversation locale
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
   const [conversationStarted, setConversationStarted] = useState(true); // Déjà démarré avec message d'accueil
@@ -100,7 +100,7 @@ export default function AssistantTraduction() {
   const getWelcomeMessage = useCallback((): Message => {
     const welcomeText = `👋 Bonjour ! Je suis votre assistant de **traduction professionnelle**.
 
-Envoyez-moi le texte que vous souhaitez traduire, et je vous fournirai une traduction de qualité professionnelle. Vous pouvez choisir la langue de traduction ci-dessus.`;
+Envoyez-moi le texte que vous souhaitez traduire vers **${targetLang}**, et je vous fournirai une traduction de qualité professionnelle.`;
     
     return {
       id: `welcome-traduction-${Date.now()}`,
@@ -108,15 +108,13 @@ Envoyez-moi le texte que vous souhaitez traduire, et je vous fournirai une tradu
       isUser: false,
       timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
-  }, []);
+  }, [targetLang]);
 
-  // Initialiser avec message d'accueil (SEULEMENT au premier chargement)
-  useEffect(() => {
-    if (messages.length === 0) {
-      const welcomeMessage = getWelcomeMessage();
-      setMessages([welcomeMessage]);
-    }
-  }, []); // Pas de dépendance pour éviter la réinitialisation
+  // Hook de conversation locale
+  const { messages, setMessages, handleNewChat: handleNewChatLocal, checkStorageLimits } = useLocalConversation({
+    widgetName: 'traduction',
+    getWelcomeMessage
+  });
 
   // Prompt spécialisé traduction
   const getSystemPrompt = (lang: string): string => {
