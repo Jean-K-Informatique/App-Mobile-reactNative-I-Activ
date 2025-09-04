@@ -10,10 +10,14 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Platform,
+  ScrollView,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -25,7 +29,7 @@ function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showDebug, setShowDebug] = useState(false); // legacy debug; désactivé
+  const [loginStep, setLoginStep] = useState('social'); // 'social', 'email', 'password'
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -62,10 +66,34 @@ function LoginScreen() {
     try {
       await signInWithApple();
     } catch (error: any) {
+      // Ne pas afficher d'erreur si l'utilisateur a juste annulé
+      if (error?.message?.includes('canceled') || error?.message?.includes('annulé')) {
+        console.log('Connexion Apple annulée par l\'utilisateur');
+        return; // Pas d'alerte pour une annulation
+      }
       Alert.alert('Erreur', 'Erreur lors de la connexion Apple');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEmailNext = () => {
+    if (!email.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir votre adresse email');
+      return;
+    }
+    setLoginStep('password');
+  };
+
+  const handleBackToEmail = () => {
+    setLoginStep('email');
+    setPassword('');
+  };
+
+  const handleBackToSocial = () => {
+    setLoginStep('social');
+    setEmail('');
+    setPassword('');
   };
 
   const handleTestLogin = async () => {
@@ -82,91 +110,168 @@ function LoginScreen() {
 
   return (
     <SafeAreaView edges={['top','bottom']} style={styles.container}>
-      <View style={[styles.content, { flexDirection: isDesktop ? 'row' : 'column' }]}>
-        {/* Logo Section */}
-        <View style={[styles.logoSection, { flex: isDesktop ? 1 : 0 }]}>
-          <Image
-            source={require('../assets/mobile-assets/LogoSombreTexte.png')}
-            style={[
-              styles.logo,
-              {
-                width: isDesktop ? 500 : 60,
-                height: isDesktop ? 500 : 60,
-              }
-            ]}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* Form Section */}
-        <View style={[styles.formSection, { flex: isDesktop ? 1 : 0 }]}>
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Se connecter</Text>
-
-            {/* Email Input */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>@</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#d3d3d3"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            {/* Password Input */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>🔒</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Mot de passe"
-                placeholderTextColor="#d3d3d3"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
-            </View>
-
-            {/* Login Button */}
-            <TouchableOpacity 
-              style={styles.loginButton} 
-              onPress={handleEmailLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.loginButtonText}>Se connecter</Text>
-              )}
-            </TouchableOpacity>
-
-            <Text style={styles.orText}>ou</Text>
-
-            {/* Google Login Button */}
-            <TouchableOpacity 
-              style={styles.googleButton}
-              onPress={handleGoogleLogin}
-              disabled={loading}
-            >
-              <Text style={styles.googleButtonText}>Se connecter avec Google</Text>
-            </TouchableOpacity>
-
-            {/* Apple Login Button (iOS uniquement) */}
-            {Platform.OS === 'ios' ? (
-              <View style={{ width: '100%', marginTop: 12 }}>
-                <AppleAuthentication.AppleAuthenticationButton
-                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                  cornerRadius={12}
-                  style={{ width: '100%', height: 48 }}
-                  onPress={handleAppleLogin}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.content, { flexDirection: isDesktop ? 'row' : 'column' }]}>
+              {/* Logo Section */}
+              <View style={[styles.logoSection, { flex: isDesktop ? 1 : 0 }]}>
+                <Image
+                  source={require('../assets/mobile-assets/LogoSombreTexte.png')}
+                  style={[
+                    styles.logo,
+                    {
+                      width: isDesktop ? 500 : 60,
+                      height: isDesktop ? 500 : 60,
+                    }
+                  ]}
+                  resizeMode="contain"
                 />
               </View>
-            ) : null}
 
+              {/* Form Section */}
+              <View style={[styles.formSection, { flex: isDesktop ? 1 : 0 }]}>
+                <View style={styles.formContainer}>
+            <Text style={styles.title}>Se connecter</Text>
+
+            {/* Étape Social - Boutons Google & Apple */}
+            {loginStep === 'social' && (
+              <>
+                {/* Google Login Button avec logo */}
+                <TouchableOpacity 
+                  style={styles.socialButton}
+                  onPress={handleGoogleLogin}
+                  disabled={loading}
+                >
+                  <Image 
+                    source={require('../assets/images/google.png')} 
+                    style={styles.socialLogo} 
+                  />
+                  <View style={styles.socialButtonTextContainer}>
+                    <Text style={styles.socialButtonText}>Se connecter avec Google</Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Apple Login Button avec logo */}
+                <TouchableOpacity 
+                  style={styles.socialButton}
+                  onPress={handleAppleLogin}
+                  disabled={loading}
+                >
+                  <Image 
+                    source={require('../assets/images/logo-apple.png')} 
+                    style={styles.socialLogo} 
+                  />
+                  <View style={styles.socialButtonTextContainer}>
+                    <Text style={styles.socialButtonText}>Se connecter avec Apple</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <Text style={styles.orText}>ou</Text>
+
+                {/* Email Input pour I-Activ */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputIcon}>@</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Adresse email I-Activ"
+                    placeholderTextColor="#d3d3d3"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.nextButton} 
+                  onPress={() => setLoginStep('email')}
+                  disabled={loading}
+                >
+                  <Text style={styles.nextButtonText}>Suivant</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* Étape Email - Validation de l'email */}
+            {loginStep === 'email' && (
+              <>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={handleBackToSocial}
+                >
+                  <Text style={styles.backButtonText}>← Retour</Text>
+                </TouchableOpacity>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputIcon}>@</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Adresse email I-Activ"
+                    placeholderTextColor="#d3d3d3"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.nextButton} 
+                  onPress={handleEmailNext}
+                  disabled={loading}
+                >
+                  <Text style={styles.nextButtonText}>Suivant</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* Étape Password - Saisie mot de passe */}
+            {loginStep === 'password' && (
+              <>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={handleBackToEmail}
+                >
+                  <Text style={styles.backButtonText}>← Retour</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.emailDisplay}>📧 {email}</Text>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputIcon}>🔒</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Mot de passe"
+                    placeholderTextColor="#d3d3d3"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoFocus
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.loginButton} 
+                  onPress={handleEmailLogin}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.loginButtonText}>Se connecter</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
 
             {/* Footer Links */}
             <View style={styles.footerLinks}>
@@ -177,17 +282,16 @@ function LoginScreen() {
               <TouchableOpacity onPress={() => router.push('/account')}>
                 <Text style={styles.linkText}>Pas de compte ? Créer un compte</Text>
               </TouchableOpacity>
-
-              {/* DebugPanel retiré */}
             </View>
 
           </View>
         </View>
       </View>
-
-      {/* Modal Debug retirée */}
-    </SafeAreaView>
-  );
+    </ScrollView>
+  </TouchableWithoutFeedback>
+</KeyboardAvoidingView>
+</SafeAreaView>
+);
 }
 
 const styles = StyleSheet.create({
@@ -234,8 +338,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#171717',
-    borderRadius: 35,
+    borderRadius: 25,
     marginBottom: 16,
+    marginTop: 8,
     paddingHorizontal: 20,
     shadowColor: 'rgb(5, 5, 5)',
     shadowOffset: { width: 2, height: 5 },
@@ -275,20 +380,91 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginVertical: 16,
   },
-  googleButton: {
+  socialButton: {
     backgroundColor: '#ffffff',
     borderRadius: 25,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     width: '100%',
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    position: 'relative',
   },
-  googleButtonText: {
-    fontSize: 16,
+  socialLogo: {
+    width: 18,
+    height: 18,
+    marginLeft: 4,
+    marginRight: 12,
+    resizeMode: 'contain',
+  },
+  socialButtonTextContainer: {
+    flex: 1,
+    alignItems: 'center',
+    marginRight: 30, // Réduit pour éviter les retours à la ligne
+  },
+  socialButtonText: {
+    fontSize: 15,
     fontWeight: '600',
     color: '#000000',
+  },
+  iactivButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 25,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#d3d3d3',
+  },
+  iactivButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#d3d3d3',
+  },
+  nextButton: {
+    backgroundColor: '#1d9bf0',
+    borderRadius: 25,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  nextButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: '#1d9bf0',
+    fontWeight: '600',
+  },
+  emailDisplay: {
+    fontSize: 16,
+    color: '#d3d3d3',
+    textAlign: 'center',
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#333333',
+    borderRadius: 12,
   },
   footerLinks: {
     marginTop: 24,

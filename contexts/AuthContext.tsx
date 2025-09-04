@@ -6,7 +6,6 @@ import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
-import * as Random from 'expo-random';
 import { router } from 'expo-router';
 import { auth } from '../services/firebaseConfig';
 
@@ -182,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Nonce aléatoire sécurisé (hex) et SHA-256 pour la requête Apple
-      const randomBytes = await Random.getRandomBytesAsync(32);
+      const randomBytes = await Crypto.getRandomBytesAsync(32);
       const rawNonce = Array.from(randomBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
       const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
 

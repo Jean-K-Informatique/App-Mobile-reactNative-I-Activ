@@ -21,7 +21,9 @@
       "bundleIdentifier": "com.jeankiactiv.boltexponativewind",
       "infoPlist": {
         "CFBundleLocalizations": ["fr", "en"],
-        "CFBundleDevelopmentRegion": "fr"
+        "CFBundleDevelopmentRegion": "fr",
+        "NSMicrophoneUsageDescription": "L'application utilise le microphone pour la dictée vocale et les messages audio.",
+        "NSSpeechRecognitionUsageDescription": "L'application utilise la reconnaissance vocale pour la dictée."
       }
     },
     "android": {
@@ -42,10 +44,17 @@
       "expo-font",
       "expo-web-browser",
       "expo-camera",
+      "expo-apple-authentication",
       [
         "expo-image-picker",
         {
           "photosPermission": "L'application accède aux photos pour partager des images dans le chat"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "L'application utilise le microphone pour la dictée vocale et les messages audio."
         }
       ]
     ],
