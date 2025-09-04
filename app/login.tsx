@@ -40,7 +40,7 @@ function LoginScreen() {
     setLoading(true);
     try {
       await signInWithEmailPassword(email, password);
-      router.replace('/main');
+      router.replace('/widgets');
     } catch (error: any) {
       const code = error?.code || 'unknown';
       const msg = error?.message || 'Erreur inconnue';
@@ -100,7 +100,7 @@ function LoginScreen() {
     setLoading(true);
     try {
       await signInWithTestAccount();
-      router.replace('/main');
+      router.replace('/widgets');
     } catch (error: any) {
       Alert.alert('Erreur', 'Erreur lors de la connexion test');
     } finally {

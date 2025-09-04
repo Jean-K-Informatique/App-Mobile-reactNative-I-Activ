@@ -89,9 +89,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthContext] Auth initialisé');
       }
 
-      // Redirection automatique après connexion
+      // Redirection automatique après connexion vers widgets
       if (!wasAuthenticated && isNowAuthenticated) {
-        router.replace('/main');
+        router.replace('/widgets');
       }
 
       if (wasAuthenticated && !isNowAuthenticated) {
@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .then(userCred => {
             console.log('Connexion Firebase réussie ! UID:', userCred.user.uid);
             // Redirection de sécurité en plus du listener
-            router.replace('/main');
+            router.replace('/widgets');
           })
           .catch(err => {
             console.error('Erreur lors de l\'auth Firebase :', err);
@@ -213,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log('Connexion Apple → Firebase réussie ! UID:', userCredential.user.uid);
-      router.replace('/main');
+      router.replace('/widgets');
     } catch (error: any) {
       if (error?.code === 'ERR_CANCELED') {
         console.log('Connexion Apple annulée par l’utilisateur');

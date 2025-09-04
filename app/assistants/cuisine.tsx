@@ -490,11 +490,6 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     ]);
 
     abortControllerRef.current = new AbortController();
-    streamingBufferRef.current = '';
-    if (streamingTimerRef.current) { 
-      clearTimeout(streamingTimerRef.current); 
-      streamingTimerRef.current = null; 
-    }
 
     console.log('🤖 Cuisine - Début analyse image avec OpenAI');
     try {
@@ -503,21 +498,12 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
         message || "Voici une photo d'ingrédients. Décris-les et propose 3 recettes simples et 2 recettes créatives possibles avec instructions et quantités.",
         {
           onChunk: (chunk: string) => {
-            console.log('📥 Cuisine - Chunk reçu:', chunk.length, 'caractères');
-            streamingBufferRef.current += chunk;
-            if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
-            streamingTimerRef.current = setTimeout(() => {
-              const buffer = streamingBufferRef.current; 
-              streamingBufferRef.current = '';
-              setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: msg.text + buffer } : msg));
-            }, 12);
+            // Streaming direct comme ChatInterface pour de meilleures performances
+            setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: msg.text + chunk } : msg));
           },
           onComplete: (full: string) => {
             console.log('✅ Cuisine - Vision analyse terminée, texte complet:', full.length, 'caractères');
-            if (streamingTimerRef.current) { 
-              clearTimeout(streamingTimerRef.current); 
-              streamingTimerRef.current = null; 
-            }
+            // Le streaming direct a déjà mis à jour le texte, on s'assure juste que c'est complet
             setMessages(prev => prev.map(msg => msg.id === assistantMessageId ? { ...msg, text: full } : msg));
           },
           onError: (error) => {
@@ -659,7 +645,10 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
 
           {/* Prévisualisation d'image sélectionnée */}
           {(() => {
-            console.log('🔍 Cuisine - Debug render - selectedImageUri:', selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+            // Logs seulement quand il y a un changement significatif
+            if (selectedImageUri || selectedImageBase64) {
+              console.log('🔍 Cuisine - Image state - selectedImageUri:', !!selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+            }
             return null;
           })()}
           {selectedImageUri && (
@@ -793,6 +782,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -810,6 +800,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -839,6 +830,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -883,6 +875,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     maxHeight: 120,
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -895,6 +888,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,

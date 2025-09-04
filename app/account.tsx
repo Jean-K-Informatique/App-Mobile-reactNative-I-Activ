@@ -68,7 +68,7 @@ export default function AccountScreen() {
       //   displayName: `${firstName} ${lastName}`
       // });
 
-      router.replace('/main');
+      router.replace('/widgets');
     } catch (error: any) {
       const code = error?.code || 'auth/unknown';
       const rawMsg = error?.message || '';
@@ -106,7 +106,7 @@ export default function AccountScreen() {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.replace('/main');
+      router.replace('/widgets');
     } catch (error: any) {
       Alert.alert('Erreur', 'Erreur lors de l\'inscription avec Google');
     } finally {

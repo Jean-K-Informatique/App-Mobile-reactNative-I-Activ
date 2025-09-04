@@ -89,6 +89,28 @@ export default function ChatInterface({
   
   // Mode navigation privée
   const [isPrivateMode, setIsPrivateMode] = useState(false);
+
+  // Générer message d'accueil initial
+  const getWelcomeMessage = useCallback((): Message => {
+    const welcomeText = `👋 Bonjour ! Je suis l'assistant général d'**I-Activ**, votre compagnon IA polyvalent.
+
+Je peux vous aider sur tous les sujets :
+• 💬 Répondre à vos questions
+• 🖼️ Analyser des images
+• ✍️ Rédiger du contenu
+• 🧩 Résoudre des problèmes
+• 📚 Expliquer des concepts complexes
+
+Comme ChatGPT, je suis conçu pour être votre assistant universel. N'hésitez pas à me poser toutes vos questions ! 🚀`;
+    
+    return {
+      id: `welcome-chatia-${Date.now()}`,
+      text: welcomeText,
+      isUser: false,
+      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      streaming: false
+    };
+  }, []);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   // Store des conversations par assistant pour les garder séparées
@@ -438,6 +460,8 @@ export default function ChatInterface({
 
   // Fonction pour gérer la création d'une nouvelle conversation en mode privé
   const handleNewPrivateConversation = () => {
+    console.log('🔍 handleNewPrivateConversation - isPrivateMode:', isPrivateMode, 'conversationStarted:', conversationStarted, 'messages.length:', messages.length);
+    
     if (isPrivateMode && conversationStarted && messages.length > 0) {
       Alert.alert(
         "⚠️ Nouvelle Conversation Privée",
@@ -456,6 +480,13 @@ export default function ChatInterface({
       );
       return false; // Bloquer l'envoi du message
     }
+    
+    // Marquer que la conversation a commencé
+    if (!conversationStarted) {
+      setConversationStarted(true);
+      console.log('✅ Conversation démarrée');
+    }
+    
     return true; // Autoriser l'envoi
   };
 
@@ -502,7 +533,7 @@ export default function ChatInterface({
   }, [isPrivateMode, conversationStarted, messages.length]);
 
   // Fonction pour sauvegarder la conversation actuelle
-  const saveCurrentConversation = async () => {
+  const saveCurrentConversation = useCallback(async () => {
     if (!currentChat || !conversationStarted || isPrivateMode) return;
 
     try {
@@ -545,7 +576,7 @@ export default function ChatInterface({
     } catch (error) {
       console.error('❌ Erreur sauvegarde conversation:', error);
     }
-  };
+  }, [currentChat, conversationStarted, isPrivateMode, currentConversationId, messages, forceNewConversation]);
 
   // Fonction pour réinitialiser la conversation actuelle
   const resetCurrentConversation = () => {
@@ -626,14 +657,60 @@ export default function ChatInterface({
     if (newChat && newChat.id !== currentChat?.id) {
       setCurrentChat(newChat);
       
-      // Charger la conversation sauvegardée pour cet assistant ou partir de zéro
+      // Charger la conversation sauvegardée pour cet assistant ou créer message d'accueil
       const savedMessages = conversationsRef.current[currentAssistant] || [];
-      setMessages(savedMessages);
-      setConversationStarted(savedMessages.length > 0);
       
-      console.log(`✅ Assistant changé vers ${currentAssistant}, ${savedMessages.length} messages restaurés`);
+      if (savedMessages.length > 0) {
+        setMessages(savedMessages);
+        setConversationStarted(true);
+        console.log(`✅ Assistant changé vers ${currentAssistant}, ${savedMessages.length} messages restaurés`);
+      } else {
+        // Pas de conversation sauvée, créer message d'accueil
+        const welcomeMessage = getWelcomeMessage();
+        setMessages([welcomeMessage]);
+        setConversationStarted(true);
+        console.log(`✅ Assistant changé vers ${currentAssistant}, message d'accueil créé`);
+      }
     }
   }, [currentAssistant, chats, currentChat?.id]);
+
+  // S'assurer qu'il y a toujours un message d'accueil au démarrage
+  useEffect(() => {
+    // Attendre que tout soit initialisé ET que ce soit ChatIA
+    if (currentChat && currentChat.name === 'I-Activ version gratuite' && messages.length === 0 && !conversationStarted && !loading) {
+      console.log('🚀 Initialisation message d\'accueil ChatIA au démarrage');
+      
+      const welcomeText = `👋 Bonjour ! Je suis l'assistant général d'**I-Activ**, votre compagnon IA polyvalent.
+
+Je peux vous aider sur tous les sujets :
+• 💬 Répondre à vos questions
+• 🖼️ Analyser des images
+• ✍️ Rédiger du contenu
+• 🧩 Résoudre des problèmes
+• 📚 Expliquer des concepts complexes
+
+Comme ChatGPT, je suis conçu pour être votre assistant universel. N'hésitez pas à me poser toutes vos questions ! 🚀`;
+      
+      const welcomeMessage = {
+        id: `welcome-chatia-startup-${Date.now()}`,
+        text: welcomeText,
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        streaming: false
+      };
+      
+      setMessages([welcomeMessage]);
+      setConversationStarted(true);
+    }
+  }, [currentChat, messages.length, conversationStarted, loading]);
+
+  // S'assurer que conversationStarted suit les messages
+  useEffect(() => {
+    if (messages.length > 0 && !conversationStarted) {
+      console.log('🔄 conversationStarted mis à true car messages présents');
+      setConversationStarted(true);
+    }
+  }, [messages.length, conversationStarted]);
 
   // Sauvegarder les messages quand ils changent (pour persister les conversations par assistant)
   useEffect(() => {
@@ -652,7 +729,7 @@ export default function ChatInterface({
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [messages, currentChat?.name, isPrivateMode, conversationStarted]);
+  }, [messages, currentChat?.name, isPrivateMode, conversationStarted, saveCurrentConversation]);
 
   // Auto-scroll optimisé pendant le streaming
   useEffect(() => {
@@ -775,7 +852,6 @@ export default function ChatInterface({
         message || 'Décris le contenu de cette image et en déduis des éléments utiles pour la conversation.',
         {
           onChunk: (chunk) => {
-            console.log('📥 Chunk reçu:', chunk.length, 'caractères');
             aggregated += chunk;
             updateStreamingMessage(assistantMessageId, chunk);
           },
@@ -1252,7 +1328,7 @@ export default function ChatInterface({
       keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
     >
       {/* Zone de messages */}
-      {!conversationStarted ? (
+      {!conversationStarted && messages.length === 0 ? (
         // Affichage de l'orbe de bienvenue
         <ScrollView style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
           <View style={styles.welcomeContainer}>
@@ -1307,7 +1383,10 @@ export default function ChatInterface({
 
       {/* Prévisualisation d'image sélectionnée */}
       {(() => {
-        console.log('🔍 Debug render - selectedImageUri:', selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+        // Logs seulement quand il y a un changement significatif
+        if (selectedImageUri || selectedImageBase64) {
+          console.log('🔍 ChatIA - Image state - selectedImageUri:', !!selectedImageUri, 'selectedImageBase64:', !!selectedImageBase64);
+        }
         return null;
       })()}
       {selectedImageUri && (
@@ -1621,6 +1700,7 @@ const styles = StyleSheet.create({
     margin: 16,
     paddingVertical: 8,
     paddingHorizontal: 12,
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
