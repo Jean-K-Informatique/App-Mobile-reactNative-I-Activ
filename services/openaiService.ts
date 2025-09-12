@@ -1,11 +1,26 @@
 // Service OpenAI pour les conversations IA
 // ⚠️ IMPORTANT: Ajoutez votre clé OpenAI dans le fichier .env
-// VITE_OPENAI_API_KEY=sk-proj-votre-clé-ici
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY || "VOTRE_CLE_OPENAI_ICI";
+// EXPO_PUBLIC_OPENAI_API_KEY=sk-proj-votre-clé-ici
+import Constants from 'expo-constants';
+
+// Sécurité: aucune clé API ne doit être embarquée côté client.
+// Utilisez un proxy côté serveur qui ajoute la clé en header.
+// Config: EXPO_PUBLIC_OPENAI_PROXY_URL dans .env ou app config.
+const OPENAI_PROXY_URL = (process.env.EXPO_PUBLIC_OPENAI_PROXY_URL || 
+  (Constants.expoConfig?.extra as any)?.EXPO_PUBLIC_OPENAI_PROXY_URL ||
+  '').toString().trim();
+
+function requireProxy(): string {
+  if (!OPENAI_PROXY_URL) {
+    throw new Error('Configuration manquante: EXPO_PUBLIC_OPENAI_PROXY_URL (proxy serveur requis)');
+  }
+  return OPENAI_PROXY_URL.replace(/\/$/, '');
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  // Peut être une chaîne ou un tableau de parties (texte, image_url) pour le multimodal
+  content: unknown;
 }
 
 export interface StreamingCallbacks {
@@ -22,11 +37,7 @@ export const DEFAULT_GPT5_MODEL = 'gpt-5-nano-2025-08-07';
 export async function testGPT5ChatCompletions(
   messages: ChatMessage[] = []
 ): Promise<string> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  
-  if (!API_KEY) {
-    throw new Error('Clé API OpenAI non configurée');
-  }
+  const proxy = requireProxy();
 
   try {
     console.log('🧪 Test GPT-5 Chat Completions - Code officiel du Playground');
@@ -37,10 +48,9 @@ export async function testGPT5ChatCompletions(
     ];
 
     // Code EXACT du Playground OpenAI
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`${proxy}/v1/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -90,12 +100,7 @@ export async function sendMessageToGPT5ChatCompletions(
     temperature?: number;
   }
 ): Promise<void> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  
-  if (!API_KEY) {
-    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
-    return;
-  }
+  const proxy = requireProxy();
 
   // ⚡ MESURE DE PERFORMANCE - TTFB (Time To First Byte)
   const startTime = performance.now();
@@ -116,8 +121,7 @@ export async function sendMessageToGPT5ChatCompletions(
     let chunkCount = 0;
     
     // ⚡ OPTIMISATION 1: Configuration réseau ultra-rapide
-    xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
-    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
+    xhr.open('POST', `${proxy}/v1/chat/completions`);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
     
@@ -292,7 +296,8 @@ export async function sendMessageToOpenAI(
   messages: ChatMessage[],
   model: string = DEFAULT_GPT5_MODEL
 ): Promise<string> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY || 
+                  Constants.expoConfig?.extra?.EXPO_PUBLIC_OPENAI_API_KEY;
   
   if (!API_KEY) {
     throw new Error('Clé API OpenAI non configurée');
@@ -315,10 +320,10 @@ export async function sendMessageToOpenAI(
       body.temperature = 0.7;
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const proxy = requireProxy();
+    const response = await fetch(`${proxy}/v1/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -371,12 +376,10 @@ export async function sendMessageToOpenAIStreaming(
   model: string = DEFAULT_GPT5_MODEL,
   abortController?: AbortController
 ): Promise<void> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY || 
+                  Constants.expoConfig?.extra?.EXPO_PUBLIC_OPENAI_API_KEY;
   
-  if (!API_KEY) {
-    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
-    return;
-  }
+  const proxy = requireProxy();
 
   // ⚡ Mesure de performance - TTFB (Time To First Byte)
   const startTime = performance.now();
@@ -391,9 +394,8 @@ export async function sendMessageToOpenAIStreaming(
     let buffer = '';
     let chunkCount = 0;
     
-    // ⚡ Configuration optimisée de la requête
-    xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
-    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
+    // ⚡ Configuration optimisée de la requête (via proxy sécurisé)
+    xhr.open('POST', `${proxy}/v1/chat/completions`);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
     // ⚡ Optimisations réseau
@@ -594,8 +596,7 @@ export async function sendMessageToOpenAINonStreamingResponsesLEGACY(
   reasoningEffort: ReasoningEffort = 'low',
   options?: { temperature?: number; maxOutputTokens?: number }
 ): Promise<string> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!API_KEY) throw new Error('Clé API OpenAI non configurée');
+  const proxy = requireProxy();
 
   const payload: any = {
     model,
@@ -618,10 +619,9 @@ export async function sendMessageToOpenAINonStreamingResponsesLEGACY(
   if (typeof options?.temperature === 'number') payload.temperature = options.temperature;
 
   console.log('🧠 Non-stream Responses API:', { model, reasoningEffort, messagesCount: messages.length });
-  const res = await fetch('https://api.openai.com/v1/responses', {
+  const res = await fetch(`${proxy}/v1/responses`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       // Aligner avec le mode streaming: passer ORG/PROJECT si présents
@@ -778,11 +778,7 @@ export async function sendMessageToOpenAIStreamingResponsesLEGACY(
   abortController?: AbortController,
   options?: { temperature?: number; maxOutputTokens?: number }
 ): Promise<void> {
-  const API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!API_KEY) {
-    callbacks.onError?.(new Error('Clé API OpenAI non configurée'));
-    return;
-  }
+  const proxy = requireProxy();
 
   console.log('🚀 Streaming Responses API:', { model, messagesCount: messages.length });
 
@@ -791,8 +787,7 @@ export async function sendMessageToOpenAIStreamingResponsesLEGACY(
     let fullResponse = '';
     let buffer = '';
 
-    xhr.open('POST', 'https://api.openai.com/v1/responses');
-    xhr.setRequestHeader('Authorization', `Bearer ${API_KEY}`);
+    xhr.open('POST', `${proxy}/v1/responses`);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.setRequestHeader('Accept', 'text/event-stream');
 

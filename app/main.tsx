@@ -18,7 +18,7 @@ export default function MainScreen() {
   const { isAuthenticated, loading } = useAuth();
   const suckTo = useSuckNavigator();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
-  const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
+  const [currentAssistant, setCurrentAssistant] = useState('Assistant IA');
   const [assistantPickerVisible, setAssistantPickerVisible] = useState(false);
   const [loadConversationId, setLoadConversationId] = useState<string | null>(null);
   

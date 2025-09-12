@@ -5,6 +5,7 @@ import { collection, query, where, getDocs, orderBy, limit } from 'firebase/fire
 import { db } from '../services/firebaseConfig';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import Constants from 'expo-constants';
 import ProfileModal from './ui/ProfileModal';
 import { HomeIcon, HistoryIcon, UserIcon } from './icons/SvgIcons';
 import Svg, { Path } from 'react-native-svg';
@@ -52,7 +53,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
   const [assistants, setAssistants] = useState<string[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
-  const [currentAssistant, setCurrentAssistant] = useState('Assistant dev Marc Annezo');
+  const [currentAssistant, setCurrentAssistant] = useState('Assistant IA');
   const [loading, setLoading] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [isFirstLoad, setIsFirstLoad] = useState(true); // 🆕 Différencier premier chargement
@@ -171,7 +172,8 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
       });
       
       // ✅ Free tier en fallback si aucune autorisation
-      const FREE_CHAT_ID = process.env.EXPO_PUBLIC_FREE_CHAT_ID as string | undefined;
+      const FREE_CHAT_ID = (process.env.EXPO_PUBLIC_FREE_CHAT_ID || 
+                           Constants.expoConfig?.extra?.EXPO_PUBLIC_FREE_CHAT_ID) as string | undefined;
       if (assistantNames.length === 0 && FREE_CHAT_ID) {
         try {
           const freeRef = collection(db, 'chats');
@@ -190,7 +192,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
       
       if (assistantNames.length === 0) {
         console.log('⚠️ Aucun assistant trouvé, utilisation de l\'assistant par défaut');
-        assistantNames.push('Assistant dev Marc Annezo');
+        assistantNames.push('Assistant IA');
       }
       
       setAssistants(assistantNames);
@@ -203,7 +205,7 @@ export default function Sidebar({ expanded, onClose, onAssistantChange, onConver
     } catch (error: any) {
       console.error('❌ Erreur lors de la récupération des assistants:', error);
       console.log('⚠️ Problème de permissions Firebase - utilisation de l\'assistant par défaut');
-      setAssistants(['Assistant dev Marc Annezo']);
+      setAssistants(['Assistant IA']);
     } finally {
       setLoading(false);
     }

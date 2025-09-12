@@ -1,5 +1,6 @@
 import { collection, query, where, getDocs, QueryDocumentSnapshot, DocumentData, getDoc, doc } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
+import Constants from 'expo-constants';
 
 export interface Chat {
   id: string;
@@ -53,7 +54,8 @@ export async function fetchUserChats(): Promise<Chat[]> {
     }
 
     // ✅ Ajouter le chat gratuit global si configuré et accessible publiquement
-    const FREE_CHAT_ID = process.env.EXPO_PUBLIC_FREE_CHAT_ID;
+    const FREE_CHAT_ID = process.env.EXPO_PUBLIC_FREE_CHAT_ID || 
+                         Constants.expoConfig?.extra?.EXPO_PUBLIC_FREE_CHAT_ID;
     if (FREE_CHAT_ID && !chatList.some(c => c.id === FREE_CHAT_ID)) {
       try {
         const freeSnap = await getDoc(doc(db, 'chats', FREE_CHAT_ID));

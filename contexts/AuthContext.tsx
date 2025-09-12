@@ -8,6 +8,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { router } from 'expo-router';
 import { auth } from '../services/firebaseConfig';
+import { Platform } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -40,25 +41,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     platform: Constants.platform 
   });
 
-  // SOLUTION iOS : Utiliser le schéma bundle ID pour Google OAuth
-  const redirectUri = makeRedirectUri({
-    useProxy: false, // Pas de proxy pour build native
-    scheme: 'com.jeankiactiv.boltexponativewind', // Bundle ID exact pour Google
-  });
+  // Configuration simplifiée sans redirectUri explicite
+  // Laissons le provider Google gérer automatiquement la redirection
+  console.log('[AuthContext] Utilisation de la redirection automatique du provider Google');
 
-  // Log de débogage pour vérifier l'URI de redirection
-  console.log('[AuthContext] Redirect URI généré:', redirectUri);
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
+  const googleConfig: Google.GoogleAuthRequestConfig = {
     // Client IDs pour toutes les plateformes (REQUIS pour stabilité)
     clientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
     iosClientId: '741599469385-2mvps552mdbu0fjimvim0qvti0jfrh5o.apps.googleusercontent.com',
-    // ANDROID: Utilisons temporairement le clientId web pour tester Expo Go
-    androidClientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
-    
-    // CORRECTION CRITIQUE : URI de redirection explicite
-    redirectUri,
-  });
+    androidClientId: '741599469385-q802752f8kk5o9uq4abs75cj8abrkqoq.apps.googleusercontent.com',
+    // Pas de redirectUri explicite - laisse le provider gérer
+  };
+
+  const [request, response, promptAsync] = Google.useAuthRequest(googleConfig);
 
   // DÉBOGAGE : Vérifier l'état du hook Google
   console.log('[AuthContext] Google Auth Hook:', { 
@@ -157,7 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       isGoogleSigningInRef.current = true;
       console.log('[AuthContext] Appel de promptAsync...');
-      await promptAsync();
+      console.log('[AuthContext] Configuration Google utilisée:', JSON.stringify(googleConfig, null, 2));
+      const result = await promptAsync();
+      console.log('[AuthContext] Résultat de promptAsync:', result);
     } catch (error) {
       console.error('[AuthContext] Erreur lors du démarrage de l\'auth Google:', error);
       isGoogleSigningInRef.current = false;
