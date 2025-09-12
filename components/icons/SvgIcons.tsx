@@ -197,3 +197,18 @@ export function WidgetsIcon({ size = 20, color }: IconProps) {
     </Svg>
   );
 }
+
+// Icône Copy (deux documents superposés) - basée sur copie.png
+export function CopyIcon({ size = 16, color }: IconProps) {
+  const { theme } = useTheme();
+  const iconColor = color || theme.text.primary;
+
+  return (
+    <Svg width={size} height={size} viewBox="0 0 512 512" fill="none">
+      <Path 
+        d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l0 256c0 35.34 28.65 64 64 64h192c35.2 0 64-28.66 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16V64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.836 0-16-7.164-16-16l0-256c0-8.836 7.164-16 16-16H160V128H63.1c-35.35 0-64 28.66-64 64l0 256c0 35.34 28.65 64 64 64H256c35.2 0 64-28.66 64-64v-32h-47.1L272 448z"
+        fill={iconColor}
+      />
+    </Svg>
+  );
+}

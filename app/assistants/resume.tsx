@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { 
@@ -234,9 +235,25 @@ Sois ultra-synthétique, percutant et précis.`;
     setIsAITyping(false);
   }, [setMessages]);
 
-  // Fonction pour envoyer un message (identique à correction)
+  // Fonction pour copier le texte dans le presse-papiers
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('✅ Copié', 'Le texte a été copié dans le presse-papiers', [{ text: 'OK' }]);
+    } catch (error) {
+      console.error('Erreur lors de la copie:', error);
+      Alert.alert('❌ Erreur', 'Impossible de copier le texte');
+    }
+  }, []);
+
+  // Fonction pour envoyer un message (IDENTIQUE à l'assistant cuisine)
   const sendMessage = async () => {
-    if (!inputText.trim() || isAITyping) return;
+    console.log('📤 Résumé - sendMessage appelée - inputText:', inputText.trim(), 'isAITyping:', isAITyping);
+    
+    if (!inputText.trim() || isAITyping) {
+      console.log('❌ Résumé - Conditions non remplies pour envoyer un message');
+      return;
+    }
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -245,7 +262,8 @@ Sois ultra-synthétique, percutant et précis.`;
       timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    const assistantMessageId = `assistant-${Date.now()}`;
+    // Créer un message assistant vide pour le streaming - EXACT Cuisine
+    const assistantMessageId = (Date.now() + 1).toString();
     const assistantMessage: Message = {
       id: assistantMessageId,
       text: '',
@@ -256,45 +274,77 @@ Sois ultra-synthétique, percutant et précis.`;
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInputText('');
     
-    // Fermer le clavier immédiatement après l'envoi (comme ChatIA)
+    // Fermer le clavier immédiatement après l'envoi (comme Cuisine)
     Keyboard.dismiss();
     textInputRef.current?.blur();
     
     setIsAITyping(true);
     setConversationStarted(true);
 
-    // Préparer l'AbortController
-    abortControllerRef.current = new AbortController();
+    // Vérifier les limites de stockage avant d'ajouter plus de contenu
+    await checkStorageLimits();
 
-    // Nettoyer le buffer de streaming
-    streamingBufferRef.current = '';
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
+    // Réinitialiser la ref de streaming pour ce nouveau message - EXACT Cuisine
+    streamingTextRef.current = '';
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
     }
 
+    // Affichage immédiat d'un indicateur de démarrage pour TTFR ultra-rapide
+    setMessages(prev => prev.map(msg => 
+      msg.id === assistantMessageId 
+        ? { ...msg, text: '•••', streaming: true }
+        : msg
+    ));
+
+    // Animation des points d'attente pour impression de réactivité
+    let dotCount = 3;
+    const dotTimer = setInterval(() => {
+      dotCount = dotCount === 3 ? 1 : dotCount + 1;
+      const dots = '•'.repeat(dotCount);
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMessageId && msg.text.startsWith('•')
+          ? { ...msg, text: dots }
+          : msg
+      ));
+    }, 500); // Ralenti pour économiser les ressources
+
+    // Créer AbortController pour pouvoir arrêter le streaming
+    abortControllerRef.current = new AbortController();
+
+    // Enhanced onChunk qui nettoie l'animation et lance le vrai streaming
+    const enhancedOnChunk = (chunk: string) => {
+      clearInterval(dotTimer);
+      updateStreamingMessage(assistantMessageId, chunk);
+    };
+
     const streamingCallbacks: StreamingCallbacks = {
-      onStart: () => {
-        setIsAITyping(true);
-      },
-      onChunk: (chunk: string) => {
-        updateStreamingMessage(assistantMessageId, chunk);
-      },
+      onChunk: enhancedOnChunk,
       onComplete: (fullResponse: string) => {
         console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
+        clearInterval(dotTimer); // Nettoyer l'animation à la fin
+        
+        // Finaliser le message avec le texte complet - EXACT du Cuisine
         finalizeStreamingMessage(assistantMessageId, fullResponse);
+        
         setIsAITyping(false);
         abortControllerRef.current = null;
       },
       onError: (error: Error) => {
-        console.error('Erreur streaming:', error);
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === assistantMessageId
-              ? { ...msg, text: 'Désolé, une erreur est survenue. Veuillez réessayer.' }
-              : msg
-          )
-        );
+        console.error('❌ Erreur streaming:', error);
+        clearInterval(dotTimer); // Nettoyer l'animation en cas d'erreur
+        
+        // Vérifier si c'est un arrêt volontaire - EXACT du Cuisine
+        if (error.message === 'RESPONSE_STOPPED') {
+          console.log('⏹️ Génération arrêtée par l\'utilisateur');
+          return;
+        }
+        
+        // Gérer l'erreur avec la fonction optimisée
+        const errorMessage = 'Désolé, une erreur est survenue. Veuillez réessayer.';
+        finalizeStreamingMessage(assistantMessageId, errorMessage);
+        
         setIsAITyping(false);
         abortControllerRef.current = null;
       }
@@ -461,7 +511,7 @@ Sois ultra-synthétique, percutant et précis.`;
         {/* Interface de chat (identique à correction) */}
         <KeyboardAvoidingView 
           style={[styles.container, { backgroundColor: theme.backgrounds.secondary }]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
           {/* Liste des messages */}

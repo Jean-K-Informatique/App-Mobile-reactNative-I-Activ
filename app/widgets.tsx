@@ -110,7 +110,7 @@ const TILES: Tile[] = [
     subtitle: 'Assistant mathématiques',
     imageDark: require('../assets/images/math.png'),
     imageLight: require('../assets/images/Math mode clair.png'),
-    route: '/maths-unified',
+    route: '/maths',
     gradient: ['#43e97b', '#38f9d7'],
   },
 ];

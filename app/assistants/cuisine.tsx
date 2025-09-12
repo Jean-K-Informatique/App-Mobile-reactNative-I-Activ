@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { 
@@ -23,7 +24,7 @@ import {
   type StreamingCallbacks,
   DEFAULT_GPT5_MODEL
 } from '../../services/openaiService';
-import { SendIcon, WidgetsIcon, ImageIcon } from '../../components/icons/SvgIcons';
+import { SendIcon, WidgetsIcon, ImageIcon, CopyIcon } from '../../components/icons/SvgIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { analyzeImageWithOpenAIStreaming } from '../../services/openaiService';
 import { localStorageService, type LocalMessage } from '../../services/localStorageService';
@@ -536,6 +537,17 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     streamingBufferRef.current = '';
   };
 
+  // Fonction pour copier le texte dans le presse-papiers
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('✅ Copié', 'Le texte a été copié dans le presse-papiers', [{ text: 'OK' }]);
+    } catch (error) {
+      console.error('Erreur lors de la copie:', error);
+      Alert.alert('❌ Erreur', 'Impossible de copier le texte');
+    }
+  }, []);
+
   // Scroll automatique vers le bas
   useEffect(() => {
     if (messages.length > 0) {
@@ -545,8 +557,8 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
     }
   }, [messages.length]);
 
-  // Rendu d'un message
-  const renderMessage = ({ item }: { item: Message }) => (
+  // Rendu d'un message avec bouton copier pour les réponses IA
+  const renderMessage = useCallback(({ item }: { item: Message }) => (
     <View style={[
       styles.messageContainer,
       item.isUser ? styles.userMessage : styles.assistantMessage
@@ -569,19 +581,38 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
         ]}>
           {item.text}
         </Text>
-        <Text style={[
-          styles.messageTime,
-          { 
-            color: item.isUser 
-              ? 'rgba(255,255,255,0.7)' 
-              : theme.text.secondary
-          }
-        ]}>
-          {item.timestamp}
-        </Text>
+        
+        <View style={styles.messageFooter}>
+          <Text style={[
+            styles.messageTime,
+            { 
+              color: item.isUser 
+                ? 'rgba(255,255,255,0.7)' 
+                : theme.text.secondary
+            }
+          ]}>
+            {item.timestamp}
+          </Text>
+          
+          {/* Bouton copier uniquement pour les réponses IA */}
+          {!item.isUser && item.text && item.text.length > 0 && !item.text.startsWith('•') && (
+            <TouchableOpacity
+              style={[styles.copyButton, { 
+                backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' 
+              }]}
+              onPress={() => copyToClipboard(item.text)}
+              activeOpacity={0.7}
+            >
+              <CopyIcon 
+                size={16} 
+                color={theme.text.secondary} 
+              />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
-  );
+  ), [isDark, theme.text.primary, copyToClipboard]);
 
   return (
     <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
@@ -622,10 +653,10 @@ Décrivez-moi ce que vous souhaitez cuisiner !`;
           </View>
         </View>
 
-        {/* Interface de chat (identique à correction) */}
+        {/* Interface de chat avec correction Android */}
         <KeyboardAvoidingView 
           style={[styles.container, { backgroundColor: theme.backgrounds.secondary }]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
           {/* Liste des messages */}
@@ -852,6 +883,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontWeight: '500',
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  copyButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginLeft: 8,
   },
   
   // Input (identique à ChatInterface)

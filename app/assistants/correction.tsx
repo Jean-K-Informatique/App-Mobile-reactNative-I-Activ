@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
 import { 
@@ -22,7 +23,7 @@ import {
   type ChatMessage, 
   type StreamingCallbacks
 } from '../../services/openaiService';
-import { SendIcon, WidgetsIcon } from '../../components/icons/SvgIcons';
+import { SendIcon, WidgetsIcon, CopyIcon } from '../../components/icons/SvgIcons';
 import { useLocalConversation } from '../../hooks/useLocalConversation';
 
 interface Message {
@@ -192,26 +193,57 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     }
   }, [streamingMessageId, finalizeStreamingMessage]);
 
-  // Reset complet (bouton Nouveau) avec hook local
+  // Fonction pour copier le texte dans le presse-papiers
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('✅ Copié', 'Le texte a été copié dans le presse-papiers', [{ text: 'OK' }]);
+    } catch (error) {
+      console.error('Erreur lors de la copie:', error);
+      Alert.alert('❌ Erreur', 'Impossible de copier le texte');
+    }
+  }, []);
+
+  // Reset complet (bouton Nouveau) avec confirmation et hook local
   const handleNewChat = useCallback(async () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (conversationStarted && messages.length > 1) {
+      Alert.alert(
+        'Nouvelle conversation',
+        'Votre conversation actuelle sera réinitialisée. Voulez-vous continuer ?',
+        [
+          {
+            text: 'Annuler',
+            style: 'cancel'
+          },
+          {
+            text: 'Confirmer',
+            style: 'destructive',
+            onPress: async () => {
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+              }
+              setIsAITyping(false);
+              setStreamingMessageId(null);
+              streamingTextRef.current = '';
+              streamingBufferRef.current = '';
+              if (streamingTimerRef.current) {
+                clearTimeout(streamingTimerRef.current);
+                streamingTimerRef.current = null;
+              }
+              setInputText('');
+              setShowToolbar(false);
+              setConversationStarted(true);
+              
+              await handleNewChatLocal();
+            }
+          }
+        ]
+      );
+    } else {
+      await handleNewChatLocal();
     }
-    setIsAITyping(false);
-    setStreamingMessageId(null);
-    streamingTextRef.current = '';
-    streamingBufferRef.current = '';
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
-    }
-    setInputText('');
-    setShowToolbar(false);
-    setConversationStarted(true);
-    
-    await handleNewChatLocal();
-  }, [handleNewChatLocal]);
+  }, [conversationStarted, messages.length, handleNewChatLocal]);
 
   // Fonction pour envoyer un message (IDENTIQUE à l'assistant cuisine)
   const sendMessage = async () => {
@@ -340,7 +372,7 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     }
   };
 
-  // Rendu d'un message (IDENTIQUE à l'assistant cuisine)
+  // Rendu d'un message avec bouton copier pour les réponses IA
   const renderMessage = useCallback(({ item }: { item: Message }) => {
     return (
       <View style={[
@@ -365,20 +397,39 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
           ]}>
             {item.text}
           </Text>
-          <Text style={[
-            styles.messageTime,
-            { 
-              color: item.isUser 
-                ? 'rgba(255,255,255,0.7)' 
-                : theme.text.secondary
-            }
-          ]}>
-            {item.timestamp}
-          </Text>
+          
+          <View style={styles.messageFooter}>
+            <Text style={[
+              styles.messageTime,
+              { 
+                color: item.isUser 
+                  ? 'rgba(255,255,255,0.7)' 
+                  : theme.text.secondary
+              }
+            ]}>
+              {item.timestamp}
+            </Text>
+            
+            {/* Bouton copier uniquement pour les réponses IA */}
+            {!item.isUser && item.text && item.text.length > 0 && !item.text.startsWith('•') && (
+              <TouchableOpacity
+                style={[styles.copyButton, { 
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' 
+                }]}
+                onPress={() => copyToClipboard(item.text)}
+                activeOpacity={0.7}
+              >
+                <CopyIcon 
+                  size={16} 
+                  color={theme.text.secondary} 
+                />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     );
-  }, [isDark, theme.text.primary]);
+  }, [isDark, theme.text.primary, copyToClipboard]);
 
   return (
     <SafeAreaView edges={['top','bottom']} style={[styles.container, { backgroundColor: theme.backgrounds.primary }]}>
@@ -450,11 +501,11 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
           </View>
         </View>
 
-        {/* Interface de chat (identique à ChatInterface) */}
+        {/* Interface de chat avec correction Android */}
         <KeyboardAvoidingView 
           style={[styles.container, { backgroundColor: theme.backgrounds.secondary }]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
           {/* Zone de messages - TOUJOURS afficher les messages */}
           <FlatList
@@ -664,6 +715,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontWeight: '500',
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  copyButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginLeft: 8,
   },
 
   // Input (identique à ChatInterface)
