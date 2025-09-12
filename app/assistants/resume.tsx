@@ -55,6 +55,8 @@ export default function AssistantResume() {
   // Refs pour le système machine à écrire ultra-optimisé (comme ChatIA)
   const typewriterTimerRef = useRef<number | null>(null);
   const typewriterQueueRef = useRef<string>('');
+  const streamingTextRef = useRef<string>('');
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Générer message d'accueil initial
   const getWelcomeMessage = useCallback((): Message => {
@@ -176,6 +178,62 @@ Sois ultra-synthétique, percutant et précis.`;
     }
   }, [conversationStarted, messages.length, getWelcomeMessage]);
 
+  // Streaming type « machine à écrire » (aligné sur Cuisine)
+  const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
+    typewriterQueueRef.current += newChunk;
+
+    const tick = () => {
+      const queueLen = typewriterQueueRef.current.length;
+      const sliceSize = queueLen > 200 ? 20 : queueLen > 80 ? 15 : queueLen > 20 ? 8 : 3;
+      const slice = typewriterQueueRef.current.slice(0, sliceSize);
+      typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
+
+      streamingTextRef.current += slice;
+
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+      updateTimeoutRef.current = setTimeout(() => {
+        setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
+      }, 10);
+
+      if (typewriterQueueRef.current.length === 0) {
+        if (typewriterTimerRef.current) {
+          clearInterval(typewriterTimerRef.current);
+          typewriterTimerRef.current = null;
+        }
+      }
+    };
+
+    if (!typewriterTimerRef.current) {
+      typewriterTimerRef.current = setInterval(tick, 33);
+    }
+  }, [setMessages]);
+
+  const finalizeStreamingMessage = useCallback((messageId: string, finalText: string) => {
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, text: finalText }
+          : msg
+      )
+    );
+
+    streamingTextRef.current = '';
+    typewriterQueueRef.current = '';
+    streamingBufferRef.current = '';
+    setIsAITyping(false);
+  }, [setMessages]);
+
   // Fonction pour envoyer un message (identique à correction)
   const sendMessage = async () => {
     if (!inputText.trim() || isAITyping) return;
@@ -215,22 +273,11 @@ Sois ultra-synthétique, percutant et précis.`;
       streamingTimerRef.current = null;
     }
 
-    // STREAMING ULTRA-SIMPLE ET INSTANTANÉ
-    const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
-      // AFFICHAGE IMMÉDIAT - pas de queue, pas de délai
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, text: (msg.text || '') + newChunk }
-          : msg
-      ));
-    }, []);
-
     const streamingCallbacks: StreamingCallbacks = {
       onStart: () => {
         setIsAITyping(true);
       },
       onChunk: (chunk: string) => {
-        // AFFICHAGE IMMÉDIAT - zéro délai
         updateStreamingMessage(assistantMessageId, chunk);
       },
       onComplete: (fullResponse: string) => {
@@ -273,32 +320,7 @@ Sois ultra-synthétique, percutant et précis.`;
     }
   };
 
-  // Finaliser le message de streaming (identique à ChatIA)
-  const finalizeStreamingMessage = useCallback((messageId: string, finalText: string) => {
-    // Annuler tout timeout en cours
-    if (typewriterTimerRef.current) {
-      clearInterval(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-    if (streamingTimerRef.current) {
-      clearTimeout(streamingTimerRef.current);
-      streamingTimerRef.current = null;
-    }
-    
-    // Faire la mise à jour finale
-    setMessages(prev => 
-      prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, text: finalText }
-          : msg
-      )
-    );
-    
-    // Réinitialiser les refs
-    typewriterQueueRef.current = '';
-    streamingBufferRef.current = '';
-    setIsAITyping(false);
-  }, []);
+  
 
   // Arrêter la génération
   const stopGeneration = () => {

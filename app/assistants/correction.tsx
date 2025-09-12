@@ -1,37 +1,29 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
   TextInput, 
   TouchableOpacity, 
   StyleSheet, 
-  ScrollView,
-  Dimensions,
   Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  Image
+  Keyboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Markdown from 'react-native-markdown-display';
 import { ScreenContainer, useSuckNavigator } from '../../components/ScreenTransition';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useAuth } from '../../contexts/AuthContext';
 import { 
   sendMessageToOpenAIStreamingResponses,
   DEFAULT_GPT5_MODEL,
   type ChatMessage, 
   type StreamingCallbacks
 } from '../../services/openaiService';
-import { TromboneIcon, ImageIcon, ToolsIcon, SendIcon, WidgetsIcon, UserIcon } from '../../components/icons/SvgIcons';
-import ProfileModal from '../../components/ui/ProfileModal';
+import { SendIcon, WidgetsIcon } from '../../components/icons/SvgIcons';
 import { useLocalConversation } from '../../hooks/useLocalConversation';
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 interface Message {
   id: string;
@@ -45,30 +37,27 @@ type CorrectionMode = 'orthographe' | 'grammaire';
 
 export default function AssistantCorrection() {
   const { theme, isDark } = useTheme();
-  const { user } = useAuth();
   const suckTo = useSuckNavigator();
   const insets = useSafeAreaInsets();
   
   // États principaux avec hook de conversation locale
   const [inputText, setInputText] = useState('');
   const [isAITyping, setIsAITyping] = useState(false);
-  const [conversationStarted, setConversationStarted] = useState(true); // Déjà démarré avec message d'accueil
+  const [conversationStarted, setConversationStarted] = useState(true); // démarré avec message d'accueil
   const [showToolbar, setShowToolbar] = useState(false);
   const [correctionMode, setCorrectionMode] = useState<CorrectionMode>('orthographe');
-  const [showProfileModal, setShowProfileModal] = useState(false);
   
-  // Refs (identiques à ChatInterface)
+  // Refs (identiques à Cuisine)
   const textInputRef = useRef<TextInput>(null);
   const flatListRef = useRef<FlatList>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const streamingTextRef = useRef<string>('');
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [pressedItem, setPressedItem] = useState<string | null>(null);
   const streamingBufferRef = useRef<string>('');
   const streamingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Refs pour le système machine à écrire ultra-optimisé (comme ChatIA)
+  // Refs pour le système machine à écrire ultra-optimisé (comme Cuisine)
   const typewriterTimerRef = useRef<number | null>(null);
   const typewriterQueueRef = useRef<string>('');
 
@@ -129,15 +118,37 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     }
   };
 
-  // STREAMING ULTRA-SIMPLE ET INSTANTANÉ
+  // Machine à écrire (alignée sur Cuisine)
   const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
-    // AFFICHAGE IMMÉDIAT - pas de queue, pas de délai
-    setMessages(prev => prev.map(msg => 
-      msg.id === messageId 
-        ? { ...msg, text: (msg.text || '') + newChunk }
-        : msg
-    ));
-  }, []);
+    typewriterQueueRef.current += newChunk;
+
+    const tick = () => {
+      const queueLen = typewriterQueueRef.current.length;
+      const sliceSize = queueLen > 200 ? 20 : queueLen > 80 ? 15 : queueLen > 20 ? 8 : 3;
+      const slice = typewriterQueueRef.current.slice(0, sliceSize);
+      typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
+
+      streamingTextRef.current += slice;
+
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+      updateTimeoutRef.current = setTimeout(() => {
+        setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
+      }, 10);
+
+      if (typewriterQueueRef.current.length === 0) {
+        if (typewriterTimerRef.current) {
+          clearInterval(typewriterTimerRef.current);
+          typewriterTimerRef.current = null;
+        }
+      }
+    };
+
+    if (!typewriterTimerRef.current) {
+      typewriterTimerRef.current = setInterval(tick, 33);
+    }
+  }, [setMessages]);
 
   // Finaliser le message de streaming (identique à ChatIA)
   const finalizeStreamingMessage = useCallback((messageId: string, finalText: string) => {
@@ -202,167 +213,168 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
     await handleNewChatLocal();
   }, [handleNewChatLocal]);
 
-  // Fonction pour envoyer un message (adaptée de ChatInterface)
+  // Fonction pour envoyer un message (IDENTIQUE à l'assistant cuisine)
   const sendMessage = async () => {
-    if (!inputText.trim() || isAITyping) return;
-
-    const currentInput = inputText.trim();
-    setInputText('');
+    console.log('📤 Correction - sendMessage appelée - inputText:', inputText.trim(), 'isAITyping:', isAITyping);
     
-    // Fermer le clavier immédiatement après l'envoi (comme ChatIA)
-    Keyboard.dismiss();
-    textInputRef.current?.blur();
+    if (!inputText.trim() || isAITyping) {
+      console.log('❌ Correction - Conditions non remplies pour envoyer un message');
+      return;
+    }
 
-    // Conversation déjà démarrée avec message d'accueil
-
-    // Ajouter le message de l'utilisateur
     const userMessage: Message = {
-      id: Date.now().toString(),
-      text: currentInput,
+      id: `user-${Date.now()}`,
+      text: inputText.trim(),
       isUser: true,
       timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => [...prev, userMessage]);
-
-    // Vérifier les limites de stockage
-    await checkStorageLimits();
-
-    // Créer un message assistant vide pour le streaming
+    // Créer un message assistant vide pour le streaming - EXACT Cuisine
     const assistantMessageId = (Date.now() + 1).toString();
     const assistantMessage: Message = {
       id: assistantMessageId,
       text: '',
       isUser: false,
-      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-      streaming: true
+      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => [...prev, assistantMessage]);
+    setMessages(prev => [...prev, userMessage, assistantMessage]);
+    setInputText('');
+    
+    // Fermer le clavier immédiatement après l'envoi (comme Cuisine)
+    Keyboard.dismiss();
+    textInputRef.current?.blur();
+    
     setIsAITyping(true);
     setStreamingMessageId(assistantMessageId);
+    setConversationStarted(true);
 
-    // Réinitialiser la ref de streaming pour ce nouveau message
+    // Vérifier les limites de stockage avant d'ajouter plus de contenu
+    await checkStorageLimits();
+
+    // Réinitialiser la ref de streaming pour ce nouveau message - EXACT Cuisine
     streamingTextRef.current = '';
     if (updateTimeoutRef.current) {
       clearTimeout(updateTimeoutRef.current);
       updateTimeoutRef.current = null;
     }
 
+    // Affichage immédiat d'un indicateur de démarrage pour TTFR ultra-rapide
+    setMessages(prev => prev.map(msg => 
+      msg.id === assistantMessageId 
+        ? { ...msg, text: '•••', streaming: true }
+        : msg
+    ));
+
+    // Animation des points d'attente pour impression de réactivité
+    let dotCount = 3;
+    const dotTimer = setInterval(() => {
+      dotCount = dotCount === 3 ? 1 : dotCount + 1;
+      const dots = '•'.repeat(dotCount);
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMessageId && msg.text.startsWith('•')
+          ? { ...msg, text: dots }
+          : msg
+      ));
+    }, 500); // Ralenti pour économiser les ressources
+
     // Créer AbortController pour pouvoir arrêter le streaming
     abortControllerRef.current = new AbortController();
 
+    // Enhanced onChunk qui nettoie l'animation et lance le vrai streaming
+    const enhancedOnChunk = (chunk: string) => {
+      clearInterval(dotTimer);
+      updateStreamingMessage(assistantMessageId, chunk);
+    };
+
+    const streamingCallbacks: StreamingCallbacks = {
+      onChunk: enhancedOnChunk,
+      onComplete: (fullResponse: string) => {
+        console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
+        clearInterval(dotTimer); // Nettoyer l'animation à la fin
+        
+        // Finaliser le message avec le texte complet - EXACT du Cuisine
+        finalizeStreamingMessage(assistantMessageId, fullResponse);
+        
+        setIsAITyping(false);
+        setStreamingMessageId(null);
+        abortControllerRef.current = null;
+      },
+      onError: (error: Error) => {
+        console.error('❌ Erreur streaming:', error);
+        clearInterval(dotTimer); // Nettoyer l'animation en cas d'erreur
+        
+        // Vérifier si c'est un arrêt volontaire - EXACT du Cuisine
+        if (error.message === 'RESPONSE_STOPPED') {
+          console.log('⏹️ Génération arrêtée par l\'utilisateur');
+          return;
+        }
+        
+        // Gérer l'erreur avec la fonction optimisée
+        const errorMessage = 'Désolé, une erreur est survenue. Veuillez réessayer.';
+        finalizeStreamingMessage(assistantMessageId, errorMessage);
+        
+        setIsAITyping(false);
+        setStreamingMessageId(null);
+        abortControllerRef.current = null;
+      }
+    };
+
     try {
-      console.log('🚀 Démarrage streaming correction via Responses API (gpt-5-nano)');
-
-      // Préparer l'historique pour OpenAI
-      const openAIMessages: ChatMessage[] = [
-        {
-          role: 'system',
-          content: getSystemPrompt(correctionMode)
-        },
-        // Ajouter l'historique (sans les messages d'accueil)
-        ...messages
-          .filter(msg => !msg.text.includes('👋 Bonjour !'))
-          .map(msg => ({
-            role: msg.isUser ? 'user' as const : 'assistant' as const,
-            content: msg.text
-          })),
-        // Message actuel
-        {
-          role: 'user',
-          content: currentInput
-        }
-      ];
-
-      // Callbacks de streaming (ULTRA-SIMPLE ET RAPIDE)
-      const streamingCallbacks: StreamingCallbacks = {
-        onChunk: (chunk: string) => {
-          // AFFICHAGE IMMÉDIAT - zéro délai
-          updateStreamingMessage(assistantMessageId, chunk);
-        },
-        onComplete: (fullResponse: string) => {
-          console.log('✅ Streaming terminé:', fullResponse.length + ' caractères');
-          finalizeStreamingMessage(assistantMessageId, fullResponse);
-        },
-        onError: (error: Error) => {
-          console.error('❌ Erreur streaming:', error);
-          
-          // Vérifier si c'est un arrêt volontaire
-          if (error.message === 'RESPONSE_STOPPED') {
-            console.log('⏹️ Génération arrêtée par l\'utilisateur');
-            return;
-          }
-          
-          const errorMessage = 'Désolé, une erreur est survenue. Veuillez réessayer.';
-          finalizeStreamingMessage(assistantMessageId, errorMessage);
-        }
-      };
-
-      // Démarrer le streaming ultra-optimisé via Responses API
+      const systemPrompt = getSystemPrompt(correctionMode);
+      
       await sendMessageToOpenAIStreamingResponses(
-        openAIMessages,
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage.text }
+        ],
         streamingCallbacks,
         DEFAULT_GPT5_MODEL,
         'low', // Reasoning effort pour vitesse maximale
         abortControllerRef.current,
         { maxOutputTokens: 2048 }
       );
-
-    } catch (error: any) {
-      console.error('❌ Erreur envoi message:', error);
-      const errorMessage = error.message?.includes('RESPONSE_STOPPED') 
-        ? '⏹ Génération interrompue'
-        : '❌ Désolé, une erreur est survenue. Veuillez réessayer.';
-      finalizeStreamingMessage(assistantMessageId, errorMessage);
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      streamingCallbacks.onError?.(error as Error);
     }
   };
 
-  // Rendu d'un message (adapté de ChatInterface)
+  // Rendu d'un message (IDENTIQUE à l'assistant cuisine)
   const renderMessage = useCallback(({ item }: { item: Message }) => {
     return (
       <View style={[
         styles.messageContainer,
-        item.isUser ? styles.userMessageContainer : styles.aiMessageContainer
+        item.isUser ? styles.userMessage : styles.assistantMessage
       ]}>
         <View style={[
           styles.messageBubble,
-          item.isUser 
-            ? [styles.userMessage, { backgroundColor: isDark ? '#667eea' : '#6366f1' }]
-            : [styles.aiMessage, { 
-                backgroundColor: isDark ? '#1f2937' : '#f9fafb',
-                borderColor: isDark ? '#374151' : '#e5e7eb'
-              }]
+          item.isUser ? [
+            styles.userBubble,
+            { backgroundColor: isDark ? '#667eea' : '#6366f1' } // Thème bleu correction
+          ] : [
+            styles.assistantBubble,
+            { backgroundColor: isDark ? '#2a2a2a' : '#f3f4f6' }
+          ]
         ]}>
-          <Markdown
-            style={{
-              body: {
-                color: item.isUser ? '#ffffff' : theme.text.primary,
-                fontSize: 16,
-                lineHeight: 22,
-                margin: 0
-              },
-              paragraph: {
-                marginBottom: 8,
-                marginTop: 0
-              },
-              strong: {
-                fontWeight: '700',
-                color: item.isUser ? '#ffffff' : theme.text.primary
-              }
-            }}
-          >
-            {item.text || (item.streaming ? '...' : '')}
-          </Markdown>
-          
-          {!item.isUser && (
-            <Text style={[
-              styles.timestamp,
-              { color: isDark ? '#9CA3AF' : '#6B7280' }
-            ]}>
-              {item.timestamp}
-            </Text>
-          )}
+          <Text style={[
+            styles.messageText,
+            { 
+              color: item.isUser ? '#ffffff' : theme.text.primary
+            }
+          ]}>
+            {item.text}
+          </Text>
+          <Text style={[
+            styles.messageTime,
+            { 
+              color: item.isUser 
+                ? 'rgba(255,255,255,0.7)' 
+                : theme.text.secondary
+            }
+          ]}>
+            {item.timestamp}
+          </Text>
         </View>
       </View>
     );
@@ -451,13 +463,11 @@ STYLE DE RÉPONSE: Réponds de manière concise et directe pour une amélioratio
             renderItem={renderMessage}
             keyExtractor={(item) => item.id}
             style={styles.messagesList}
-            contentContainerStyle={styles.messagesListContent}
+            contentContainerStyle={styles.messagesContent}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews={false}
             onContentSizeChange={() => {
-              // Auto-scroll optimisé à chaque changement de contenu
-              requestAnimationFrame(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              });
+              flatListRef.current?.scrollToEnd({ animated: true });
             }}
           />
 
@@ -610,40 +620,50 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   
-  // Messages (identiques à ChatInterface)
   messagesList: {
     flex: 1,
-  },
-  messagesListContent: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+  },
+  messagesContent: {
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   messageContainer: {
-    marginVertical: 4,
-    paddingHorizontal: 4,
+    marginBottom: 12,
   },
-  userMessageContainer: {
+  userMessage: {
     alignItems: 'flex-end',
   },
-  aiMessageContainer: {
+  assistantMessage: {
     alignItems: 'flex-start',
   },
   messageBubble: {
-    maxWidth: screenWidth * 0.8,
-    padding: 16,
+    maxWidth: '85%',
     borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  userMessage: {
-    borderBottomRightRadius: 4,
+  userBubble: {
+    borderBottomRightRadius: 6,
   },
-  aiMessage: {
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
+  assistantBubble: {
+    borderBottomLeftRadius: 6,
   },
-  timestamp: {
+  messageText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '400',
+  },
+  messageTime: {
     fontSize: 12,
-    marginTop: 8,
-    opacity: 0.7,
+    marginTop: 4,
+    fontWeight: '500',
   },
 
   // Input (identique à ChatInterface)

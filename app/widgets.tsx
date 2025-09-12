@@ -18,14 +18,15 @@ type Tile = {
   id: string;
   title: string;
   subtitle: string;
-  image: any;
+  imageDark: any;
+  imageLight?: any;
   route: string;
   gradient: string[];
 };
 
 // Composant Tile mémorisé pour éviter les re-renders
 const TileComponent = memo(({ tile, onPress }: { tile: Tile; onPress: (route: string) => void }) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const handlePress = useCallback(() => {
     onPress(tile.route);
   }, [tile.route, onPress]);
@@ -38,12 +39,10 @@ const TileComponent = memo(({ tile, onPress }: { tile: Tile; onPress: (route: st
         onPress={handlePress}
       >
         <Image 
-          source={tile.image} 
+          source={isDark ? tile.imageDark : (tile.imageLight ?? tile.imageDark)} 
           style={styles.tileImageFull} 
           resizeMode="cover"
           fadeDuration={0}
-          // Optimisations natives React Native
-          cache="force-cache"
           loadingIndicatorSource={undefined}
         />
       </TouchableOpacity>
@@ -64,7 +63,8 @@ const TILES: Tile[] = [
     id: 'chat',
     title: 'Chat I-Activ',
     subtitle: 'Conversations intelligentes',
-    image: require('../assets/images/chat-IA.png'),
+    imageDark: require('../assets/images/chat-IA.png'),
+    imageLight: require('../assets/images/ChatIA mode clair.png'),
     route: '/main',
     gradient: ['#667eea', '#764ba2'],
   },
@@ -72,7 +72,8 @@ const TILES: Tile[] = [
     id: 'orthographe',
     title: 'Correction',
     subtitle: 'Assistant orthographe',
-    image: require('../assets/images/orthographe.png'),
+    imageDark: require('../assets/images/orthographe.png'),
+    imageLight: require("../assets/images/correction mode  clair.png"),
     route: '/orthographe',
     gradient: ['#f093fb', '#f5576c'],
   },
@@ -80,7 +81,8 @@ const TILES: Tile[] = [
     id: 'cuisine',
     title: 'Cuisine',
     subtitle: 'Assistant recettes',
-    image: require('../assets/images/cuisine.png'),
+    imageDark: require('../assets/images/cuisine.png'),
+    imageLight: require('../assets/images/recette mode clair.png'),
     route: '/cuisine',
     gradient: ['#f59e0b', '#d97706'],
   },
@@ -88,7 +90,8 @@ const TILES: Tile[] = [
     id: 'resume',
     title: 'Résumé',
     subtitle: 'Synthèse de textes',
-    image: require('../assets/images/resume.png'),
+    imageDark: require('../assets/images/resume.png'),
+    imageLight: require('../assets/images/resume mode clair.png'),
     route: '/resume',
     gradient: ['#8b5cf6', '#7c3aed'],
   },
@@ -96,7 +99,8 @@ const TILES: Tile[] = [
     id: 'traduction',
     title: 'Traduction',
     subtitle: 'Traduire instantanément',
-    image: require('../assets/images/traduction.png'),
+    imageDark: require('../assets/images/traduction.png'),
+    imageLight: require('../assets/images/traduction mode clair.png'),
     route: '/traduction',
     gradient: ['#4facfe', '#00f2fe'],
   },
@@ -104,7 +108,8 @@ const TILES: Tile[] = [
     id: 'maths',
     title: 'Calculs',
     subtitle: 'Assistant mathématiques',
-    image: require('../assets/images/math.png'),
+    imageDark: require('../assets/images/math.png'),
+    imageLight: require('../assets/images/Math mode clair.png'),
     route: '/maths-unified',
     gradient: ['#43e97b', '#38f9d7'],
   },
@@ -156,7 +161,6 @@ function WidgetsScreen() {
       style={styles.logoImage} 
       resizeMode="contain"
       fadeDuration={0}
-      cache="force-cache"
     />
   ), [isDark]);
 

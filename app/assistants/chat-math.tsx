@@ -47,6 +47,7 @@ function ChatMathScreen() {
   // Refs pour le système machine à écrire ultra-optimisé (comme ChatIA)
   const typewriterTimerRef = useRef<number | null>(null);
   const typewriterQueueRef = useRef<string>('');
+  const streamingTextRef = useRef<string>('');
 
   // Générer message d'accueil initial
   const getWelcomeMessage = useCallback((): Message => {
@@ -180,15 +181,37 @@ Posez-moi vos questions mathématiques : équations, calculs, géométrie, proba
       streamingTimerRef.current = null;
     }
 
-    // STREAMING ULTRA-SIMPLE ET INSTANTANÉ
+    // Machine à écrire (alignée sur Cuisine)
     const updateStreamingMessage = useCallback((messageId: string, newChunk: string) => {
-      // AFFICHAGE IMMÉDIAT - pas de queue, pas de délai
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, text: (msg.text || '') + newChunk }
-          : msg
-      ));
-    }, []);
+      typewriterQueueRef.current += newChunk;
+
+      const tick = () => {
+        const queueLen = typewriterQueueRef.current.length;
+        const sliceSize = queueLen > 200 ? 20 : queueLen > 80 ? 15 : queueLen > 20 ? 8 : 3;
+        const slice = typewriterQueueRef.current.slice(0, sliceSize);
+        typewriterQueueRef.current = typewriterQueueRef.current.slice(sliceSize);
+
+        streamingTextRef.current += slice;
+
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
+        updateTimeoutRef.current = setTimeout(() => {
+          setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: streamingTextRef.current } : msg));
+        }, 10);
+
+        if (typewriterQueueRef.current.length === 0) {
+          if (typewriterTimerRef.current) {
+            clearInterval(typewriterTimerRef.current);
+            typewriterTimerRef.current = null;
+          }
+        }
+      };
+
+      if (!typewriterTimerRef.current) {
+        typewriterTimerRef.current = setInterval(tick, 33);
+      }
+    }, [setMessages]);
 
     const streamingCallbacks: StreamingCallbacks = {
       onStart: () => {
@@ -266,6 +289,7 @@ Posez-moi vos questions mathématiques : équations, calculs, géométrie, proba
     
     // Réinitialiser les refs
     typewriterQueueRef.current = '';
+    streamingTextRef.current = '';
     streamingBufferRef.current = '';
     setIsAITyping(false);
   }, []);

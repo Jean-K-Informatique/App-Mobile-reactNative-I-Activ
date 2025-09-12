@@ -1,4 +1,4 @@
-import React, { useState, useRef, memo, useCallback, useMemo } from 'react';
+import React, { useState, useRef, memo, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Dimensions, TouchableWithoutFeedback, Keyboard, Animated, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -89,6 +89,13 @@ function MathsScreen() {
     setSelectedMode(mode);
     resetAllInputs();
   };
+
+  // Redirection propre vers l'assistant conversationnel (évite un hook dans une fonction de rendu)
+  useEffect(() => {
+    if (selectedMode === 'assistant') {
+      suckTo('/assistants/chat-math', { replace: true });
+    }
+  }, [selectedMode]);
 
   const animateResult = () => {
     Animated.parallel([
@@ -268,14 +275,8 @@ function MathsScreen() {
   );
 
   const renderAssistantForm = () => {
-    // Redirection immédiate vers l'assistant conversationnel
-    useEffect(() => {
-      if (selectedMode === 'assistant') {
-        suckTo('/assistants/chat-math', { replace: true });
-      }
-    }, [selectedMode]);
-
-    return null; // Ne rien rendre, redirection en cours
+    // La redirection est gérée par le useEffect global ci-dessus
+    return null;
   };
 
   const renderPercentageForm = () => (

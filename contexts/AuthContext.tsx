@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Client IDs pour toutes les plateformes (REQUIS pour stabilité)
     clientId: '741599469385-08a1ikm22jlrm3d756effve28c9967bu.apps.googleusercontent.com',
     iosClientId: '741599469385-2mvps552mdbu0fjimvim0qvti0jfrh5o.apps.googleusercontent.com',
-    androidClientId: '741599469385-q802752f8kk5o9uq4abs75cj8abrkqoq.apps.googleusercontent.com',
+    androidClientId: '741599469385-45fpf91tualf3l7h5bno7tjtlggh8t9t.apps.googleusercontent.com',
     // Pas de redirectUri explicite - laisse le provider gérer
   };
 

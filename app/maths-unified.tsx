@@ -18,7 +18,7 @@ import { router } from 'expo-router';
 import Markdown from 'react-native-markdown-display';
 import { ScreenContainer, useSuckNavigator } from '../components/ScreenTransition';
 import { useTheme } from '../contexts/ThemeContext';
-import { sendMessageToOpenAIStreaming } from '../services/openaiService';
+import { sendMessageToOpenAIStreaming, DEFAULT_GPT5_MODEL } from '../services/openaiService';
 import { WidgetsIcon, SendIcon } from '../components/icons/SvgIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -229,7 +229,6 @@ Réponds en français, sois précis et pédagogue !`;
       
       await sendMessageToOpenAIStreaming(
         contextMessages,
-        DEFAULT_GPT5_MODEL,
         {
           onStart: () => setIsAITyping(true),
           onChunk: (chunk: string) => {
@@ -240,7 +239,8 @@ Réponds en français, sois précis et pédagogue !`;
             finalizeStreamingMessage(assistantMessageId, '❌ Désolé, une erreur est survenue. Veuillez réessayer.');
           }
         },
-        abortControllerRef.current.signal
+        DEFAULT_GPT5_MODEL,
+        abortControllerRef.current
       );
 
       // Finaliser avec le contenu du buffer
